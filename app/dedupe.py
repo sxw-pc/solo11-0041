@@ -1,0 +1,177 @@
+"""跨源数据集归并：标题相似度 + 发布方 / 时间范围指纹。"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from difflib import SequenceMatcher
+
+from .normalize import normalize_title
+
+
+def content_fingerprint(value: object) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def instance_id(source: str, source_url: str) -> str:
+    digest = hashlib.sha1(f"{source}|{source_url}".encode("utf-8")).hexdigest()
+    return "inst_" + digest[:16]
+
+
+def _source_rank(source: str, priority: list[str]) -> int:
+    try:
+        return priority.index(source)
+    except ValueError:
+        return len(priority) + 1
+
+
+def _ordered(instances: list[dict], config: dict) -> list[dict]:
+    priority = list(config.get("field_priority") or [])
+    return sorted(instances, key=lambda item: (_source_rank(item.get("source", ""), priority), item.get("source_url", "")))
+
+
+def _matching_score(left: dict, right: dict, config: dict) -> tuple[float, str] | None:
+    if not left.get("source") or not right.get("source") or left.get("source") == right.get("source"):
+        return None
+    publisher_left = left.get("publisher_norm") or normalize_title(left.get("publisher"))
+    publisher_right = right.get("publisher_norm") or normalize_title(right.get("publisher"))
+    if config.get("require_same_publisher", True):
+        if not publisher_left or publisher_left != publisher_right:
+            return None
+    if config.get("require_same_period", True):
+        if (left.get("temporal_start"), left.get("temporal_end")) != (
+            right.get("temporal_start"),
+            right.get("temporal_end"),
+        ):
+            return None
+        if not left.get("temporal_start") or not left.get("temporal_end"):
+            return None
+    if config.get("require_same_geography", True):
+        if not left.get("geography") or left.get("geography") != right.get("geography"):
+            return None
+    title_left = left.get("title_norm") or normalize_title(left.get("title"))
+    title_right = right.get("title_norm") or normalize_title(right.get("title"))
+    if not title_left or not title_right:
+        return None
+    if title_left == title_right:
+        score = 1.0
+    else:
+        score = SequenceMatcher(None, title_left, title_right).ratio()
+    threshold = float(config.get("title_similarity_threshold", 0.86))
+    if score < threshold:
+        return None
+    return round(score, 4), "exact_title+publisher+period" if score == 1.0 else "fuzzy_title+publisher+period"
+
+
+def _first(instances: list[dict], key: str):
+    for item in instances:
+        value = item.get(key)
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
+def _make_group(members: list[dict], score: float, basis: str, config: dict) -> dict:
+    instances = _ordered(members, config)
+    primary = instances[0]
+    title = _first(instances, "title") or ""
+    publisher = _first(instances, "publisher") or ""
+    group = {
+        "title": title,
+        "title_norm": normalize_title(title),
+        "category": _first(instances, "category"),
+        "publisher": publisher,
+        "publisher_norm": normalize_title(publisher),
+        "temporal_start": _first(instances, "temporal_start"),
+        "temporal_end": _first(instances, "temporal_end"),
+        "geography": _first(instances, "geography"),
+        "license": _first(instances, "license"),
+        "update_frequency": _first(instances, "update_frequency"),
+        "fields": list(_first(instances, "fields") or []),
+        "resources": list(_first(instances, "resources") or []),
+        "instances": instances,
+        "source_count": len({item.get("source") for item in instances}),
+        "score": score,
+        "basis": basis,
+        "primary_source": primary.get("source"),
+        "merge_members": [
+            {
+                "instance_id": item.get("instance_id"),
+                "source": item.get("source"),
+                "url": item.get("source_url"),
+            }
+            for item in instances
+        ],
+    }
+    key = "|".join(
+        [
+            group["title_norm"],
+            group["publisher_norm"],
+            group["temporal_start"] or "",
+            group["temporal_end"] or "",
+        ]
+    )
+    if not group["publisher_norm"]:
+        key += f"|{primary.get('source')}|{primary.get('source_url')}"
+    group["dataset_uid"] = "ds_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    fingerprint_payload = {
+        "key": key,
+        "category": group["category"],
+        "geography": group["geography"],
+        "license": group["license"],
+        "update_frequency": group["update_frequency"],
+        "fields": group["fields"],
+        "resources": group["resources"],
+        "instances": sorted(item.get("instance_id", "") for item in instances),
+        "sources": sorted({item.get("source", "") for item in instances}),
+    }
+    group["fingerprint"] = content_fingerprint(fingerprint_payload)
+    group["merge_decision"] = {
+        "member_refs": group["merge_members"],
+        "basis": basis,
+        "score": score,
+        "manual_override": 0,
+        "detail": {"title_norm": group["title_norm"], "source_count": group["source_count"]},
+    }
+    return group
+
+
+def group_instances(instances: list[dict], config: dict) -> list[dict]:
+    """仅跨源归并；以主来源（field_priority 越小越优先）代表整个簇。"""
+    ordered = _ordered(instances, config)
+    clusters: list[dict] = []
+    for item in ordered:
+        placed = False
+        for cluster in clusters:
+            match = _matching_score(cluster["primary"], item, config)
+            if match:
+                score, basis = match
+                cluster["members"].append(item)
+                cluster["score"] = max(cluster["score"], score)
+                if cluster["basis"] in {"singleton", "exact_title+publisher+period"} and basis.startswith("fuzzy"):
+                    cluster["basis"] = basis
+                elif cluster["basis"] == "singleton":
+                    cluster["basis"] = basis
+                placed = True
+                break
+        if not placed:
+            clusters.append({"primary": item, "members": [item], "score": 0.0, "basis": "singleton"})
+    groups: list[dict] = []
+    for cluster in clusters:
+        members = _ordered(cluster["members"], config)
+        basis = cluster["basis"]
+        if len(members) > 1 and basis == "singleton":
+            basis = "exact_title+publisher+period"
+        group = _make_group(members, cluster["score"] if len(members) > 1 else 1.0, basis, config)
+        groups.append(group)
+    used: set[str] = set()
+    for group in groups:
+        if group["dataset_uid"] in used:
+            # 同源重复目录项不跨源合并，但仍需分配不冲突且稳定的 UID。
+            salt = group["instances"][0].get("instance_id", "")
+            group["dataset_uid"] = "ds_" + hashlib.sha1(
+                f"{group['dataset_uid']}|{salt}".encode("utf-8")
+            ).hexdigest()[:16]
+        used.add(group["dataset_uid"])
+    return groups

@@ -1,0 +1,89 @@
+{
+  "source": "beta",
+  "base_url": "http://127.0.0.1:5000",
+  "generated_at": "2026-11-13T01:54:13+00:00",
+  "entries": [
+    {
+      "source": "beta",
+      "url": "http://127.0.0.1:5000/beta/browse?page=1",
+      "kind": "list",
+      "file": "list-1.html",
+      "status_code": 200,
+      "byte_count": 2326,
+      "sha256": "f3ba9c7a649d466f8cf881f5160743be88c2c3599b408d51c9ae875a77e2537b",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "beta",
+      "url": "http://127.0.0.1:5000/beta/browse?page=2",
+      "kind": "list",
+      "file": "list-2.html",
+      "status_code": 200,
+      "byte_count": 1743,
+      "sha256": "0da870083b3fea97d16464f6bee1e687602f92a11bcd700ac3ccd6d9eb726c1b",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "beta",
+      "url": "http://127.0.0.1:5000/beta/record/hde-001",
+      "kind": "detail",
+      "item_id": "hde-001",
+      "file": "detail-hde-001.html",
+      "status_code": 200,
+      "byte_count": 2837,
+      "sha256": "1190a6a59ec6edb0df0ee0d4683d7a19370093f9895e3b8eae048bfb02359a45",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "beta",
+      "url": "http://127.0.0.1:5000/beta/record/hde-002",
+      "kind": "detail",
+      "item_id": "hde-002",
+      "file": "detail-hde-002.html",
+      "status_code": 200,
+      "byte_count": 2495,
+      "sha256": "cc153ca9a9e2b8ed27048e1386c1503355ec524aa5ba8f803d93e1e675935988",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "beta",
+      "url": "http://127.0.0.1:5000/beta/record/hde-003",
+      "kind": "detail",
+      "item_id": "hde-003",
+      "file": "detail-hde-003.html",
+      "status_code": 200,
+      "byte_count": 2422,
+      "sha256": "afd51d39f7e001464c1d5e2561e97f08784bc4daf85c078330764c5409943701",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "beta",
+      "url": "http://127.0.0.1:5000/beta/record/hde-004",
+      "kind": "detail",
+      "item_id": "hde-004",
+      "file": "detail-hde-004.html",
+      "status_code": 200,
+      "byte_count": 2327,
+      "sha256": "769afc15fb6ea8aa5755597a89a9204c4d345265f560b07c35ec1b19cf497c34",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "beta",
+      "url": "http://127.0.0.1:5000/beta/record/hde-005",
+      "kind": "detail",
+      "item_id": "hde-005",
+      "file": "detail-hde-005.html",
+      "status_code": 200,
+      "byte_count": 2377,
+      "sha256": "2f94fc31938ce0066f565a8e7f22814c3188ecddbc23439a326ac350d0b8b3ce",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+version: 1
+defaults:
+  user_agent: "datasheet-probe/0.1 (offline-evaluation; loopback-only)"
+  timeout_seconds: 3
+  max_retries: 1
+  min_interval_seconds: 0.02
+  max_response_bytes: 2097152
+  allowed_hosts:
+    - "127.0.0.1"
+    - "localhost"
+    - "::1"
+
+sources:
+  alpha:
+    label: "Atlas Open Data"
+    base_url: "http://127.0.0.1:5000"
+    start_path: "/alpha/catalog"
+    min_interval_seconds: 0.02
+    pagination:
+      type: query
+      param: page
+      start: 1
+      step: 1
+      max_pages: 2
+    list:
+      item_selector: "div.dataset-card"
+      link_selector: "h3 a"
+      item_id_regex: "([^/?#]+)/?$"
+    detail:
+      selectors:
+        title: "h1.dataset-title"
+        category: "span.category"
+        publisher: "p.publisher-name"
+        temporal: "dl.meta dd[data-field='temporal']"
+        geography: "dl.meta dd[data-field='geography']"
+        license: "span.license"
+        update_frequency: "span.frequency"
+      field_table:
+        selector: "table.fields tbody tr"
+        name_selector: "td:nth-of-type(1)"
+        type_selector: "td:nth-of-type(2)"
+        description_selector: "td:nth-of-type(3)"
+      resources:
+        selector: "ul.resource-list li.resource"
+        format_selector: "span.resource-format"
+        size_selector: "span.resource-size"
+        link_selector: "a"
+
+  beta:
+    label: "Harbor Data Exchange"
+    base_url: "http://127.0.0.1:5000"
+    start_path: "/beta/browse"
+    min_interval_seconds: 0.03
+    pagination:
+      type: query
+      param: page
+      start: 1
+      step: 1
+      max_pages: 2
+    list:
+      item_selector: "tr.record-row"
+      link_selector: "td a"
+      item_id_regex: "([^/?#]+)/?$"
+    detail:
+      selectors:
+        title: "#record-title"
+        category: "p.kicker span"
+        publisher: "p.agency"
+        temporal: "table.kv tr:nth-of-type(1) td"
+        geography: "table.kv tr:nth-of-type(2) td"
+        license: "table.kv tr:nth-of-type(3) td"
+        update_frequency: "table.kv tr:nth-of-type(4) td"
+      field_table:
+        selector: "table#schema tbody tr"
+        name_selector: "td:nth-of-type(1)"
+        type_selector: "td:nth-of-type(2)"
+        description_selector: "td:nth-of-type(3)"
+      resources:
+        selector: "ul.downloads li"
+        format_selector: "span.fmt"
+        size_selector: "span.size"
+        link_selector: "a"
+
+  gamma:
+    label: "Lakeview Civic Lakehouse"
+    base_url: "http://127.0.0.1:5000"
+    start_path: "/gamma/browse"
+    min_interval_seconds: 0.04
+    pagination:
+      type: next_link
+      next_selector: "a.next-page"
+      max_pages: 3
+    list:
+      item_selector: "article.dataset-brief"
+      link_selector: "h2 a"
+      next_selector: "a.next-page"
+      item_id_regex: "([^/?#]+)/?$"
+    # 仅声明结构稳定的字段；其余字段由 extract.py 的 dt/表格启发式回退。
+    detail:
+      selectors:
+        title: "article.record h1"
+        category: "p.eyebrow span"
+        publisher: "p.byline strong"
+      field_table:
+        selector: "table.schema-grid tbody tr"
+        name_selector: "td:nth-of-type(1)"
+        type_selector: "td:nth-of-type(2)"
+        description_selector: "td:nth-of-type(3)"

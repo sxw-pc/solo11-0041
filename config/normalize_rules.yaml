@@ -1,0 +1,253 @@
+version: 1
+categories:
+  environment:
+    - environment
+    - environmental
+    - environmental monitoring
+    - air quality
+    - environment / air
+    - environment / climate
+    - climate
+    - 环境
+    - 空气质量
+  transportation:
+    - transportation
+    - transport
+    - transit
+    - mobility
+    - 交通
+    - 公共交通
+  government:
+    - government
+    - government / finance
+    - public finance
+    - budget
+    - 政府
+    - 财政
+  education:
+    - education
+    - education / culture
+    - culture
+    - schools
+    - 教育
+    - 文化
+  planning:
+    - planning
+    - planning & zoning
+    - zoning
+    - land use
+    - 规划
+  infrastructure:
+    - infrastructure
+    - public works
+    - roads
+    - 基础设施
+  technology:
+    - technology
+    - digital services
+    - connectivity
+    - 科技
+  waste:
+    - waste
+    - utilities / waste
+    - sanitation
+    - recycling
+    - 固废
+    - 回收
+  health:
+    - health
+    - public health
+    - 健康
+    - 公共卫生
+  other:
+    - other
+    - uncategorized
+    - 其他
+
+frequency:
+  hourly:
+    - hourly
+    - every hour
+    - 每小时
+  daily:
+    - daily
+    - every day
+    - day
+    - 每日
+    - 每天
+  weekly:
+    - weekly
+    - every week
+    - 每周
+  monthly:
+    - monthly
+    - every month
+    - 每月
+  quarterly:
+    - quarterly
+    - every quarter
+    - 每季度
+  annually:
+    - annual
+    - annually
+    - yearly
+    - year
+    - 每年
+    - 年度
+  irregular:
+    - irregular
+    - as needed
+    - event-driven
+    - ad hoc
+    - 不定期
+  unknown:
+    - unknown
+    - 未知
+
+formats:
+  canonical:
+    - CSV
+    - JSON
+    - XML
+    - GEOJSON
+    - XLSX
+    - ZIP
+    - PDF
+    - PARQUET
+    - HTML
+    - API
+    - OTHER
+  aliases:
+    jsonl: JSON
+    ndjson: JSON
+    geojson: GEOJSON
+    xls: XLSX
+    excel: XLSX
+    text/csv: CSV
+    application/json: JSON
+
+field_types:
+  canonical:
+    - string
+    - integer
+    - number
+    - date
+    - datetime
+    - boolean
+    - geometry
+  aliases:
+    text: string
+    varchar: string
+    char: string
+    str: string
+    int: integer
+    bigint: integer
+    float: number
+    double: number
+    decimal: number
+    numeric: number
+    timestamp: datetime
+    "date-time": datetime
+    bool: boolean
+    point: geometry
+    geojson: geometry
+
+geography:
+  US:
+    - united states
+    - united states of america
+    - us
+    - usa
+    - 美国
+  US-CA:
+    - california
+    - ca
+    - 加利福尼亚
+  US-NY:
+    - new york
+    - ny
+    - 纽约
+  US-WA:
+    - washington
+    - wa
+    - 华盛顿州
+  US-MN:
+    - minnesota
+    - mn
+    - 明尼苏达
+  GLOBAL:
+    - global
+    - worldwide
+    - 全球
+
+size_units:
+  b: 1
+  byte: 1
+  bytes: 1
+  kb: 1024
+  kib: 1024
+  mb: 1048576
+  mib: 1048576
+  gb: 1073741824
+  gib: 1073741824
+  tb: 1099511627776
+
+license_aliases:
+  CC-BY-4.0:
+    - cc by 4.0
+    - cc-by-4.0
+    - creative commons attribution 4.0
+  CC0-1.0:
+    - cc0
+    - cc0-1.0
+    - public domain
+  OGL-3.0:
+    - open government licence v3.0
+    - ogl v3
+    - ogl-3.0
+
+dedupe:
+  title_similarity_threshold: 0.86
+  require_same_publisher: true
+  require_same_period: true
+  require_same_geography: true
+  field_priority:
+    - alpha
+    - beta
+    - gamma
+
+validation:
+  required:
+    - title
+    - category
+    - publisher
+    - temporal_start
+    - temporal_end
+    - geography
+    - license
+    - update_frequency
+    - fields
+    - resources
+  allowed_categories:
+    - environment
+    - transportation
+    - government
+    - education
+    - planning
+    - infrastructure
+    - technology
+    - waste
+    - health
+    - other
+  allowed_frequencies:
+    - hourly
+    - daily
+    - weekly
+    - monthly
+    - quarterly
+    - annually
+    - irregular
+    - unknown
+  cross_source_field_gap:
+    absolute: 3
+    ratio: 0.5

@@ -1,0 +1,101 @@
+{
+  "source": "gamma",
+  "base_url": "http://127.0.0.1:5000",
+  "generated_at": "2026-11-13T01:54:13+00:00",
+  "entries": [
+    {
+      "source": "gamma",
+      "url": "http://127.0.0.1:5000/gamma/browse",
+      "kind": "list",
+      "file": "list-1.html",
+      "status_code": 200,
+      "byte_count": 2243,
+      "sha256": "94c7a89eaace696be6dd56a912ad2d52e973f1342240376c0d0dc079438b98e9",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "gamma",
+      "url": "http://127.0.0.1:5000/gamma/browse?after=3",
+      "kind": "list",
+      "file": "list-2.html",
+      "status_code": 200,
+      "byte_count": 2194,
+      "sha256": "c091ab6cd6ded2a723b3a9c58b5a52c724116c6bf5c19c44e834671c36858615",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "gamma",
+      "url": "http://127.0.0.1:5000/gamma/item/g-001",
+      "kind": "detail",
+      "item_id": "g-001",
+      "file": "detail-g-001.html",
+      "status_code": 200,
+      "byte_count": 2240,
+      "sha256": "fe18174b010e617c44d266cf8b0018931bd18df87b79f31d5f440a869f6dfcbd",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "gamma",
+      "url": "http://127.0.0.1:5000/gamma/item/g-002",
+      "kind": "detail",
+      "item_id": "g-002",
+      "file": "detail-g-002.html",
+      "status_code": 200,
+      "byte_count": 2239,
+      "sha256": "4f34788e621ef97d9c8c07e8c58db78ad4c60091ded5f7fc7420734a11f3e9e3",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "gamma",
+      "url": "http://127.0.0.1:5000/gamma/item/g-003",
+      "kind": "detail",
+      "item_id": "g-003",
+      "file": "detail-g-003.html",
+      "status_code": 200,
+      "byte_count": 2253,
+      "sha256": "6630da863d6f65881fe92f0dd99dcd636dd11e5acbf431e32596e8a33fa22e38",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "gamma",
+      "url": "http://127.0.0.1:5000/gamma/item/g-004",
+      "kind": "detail",
+      "item_id": "g-004",
+      "file": "detail-g-004.html",
+      "status_code": 200,
+      "byte_count": 2215,
+      "sha256": "f39f79063cbb4320b59967598cd7cd64250fc2d5c37b15861f39c71a8057bb78",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "gamma",
+      "url": "http://127.0.0.1:5000/gamma/item/g-005",
+      "kind": "detail",
+      "item_id": "g-005",
+      "file": "detail-g-005.html",
+      "status_code": 200,
+      "byte_count": 2265,
+      "sha256": "0bc1dd53040da2c2b55012f11788f94d0d1d519ff731351403098f4dde0af278",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "gamma",
+      "url": "http://127.0.0.1:5000/gamma/item/g-006",
+      "kind": "detail",
+      "item_id": "g-006",
+      "file": "detail-g-006.html",
+      "status_code": 200,
+      "byte_count": 2232,
+      "sha256": "cc0673330ed97d04f4e4ca77603d78a1ba89c75cdd2d222c414d6ce8afc9052a",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    }
+  ]
+}

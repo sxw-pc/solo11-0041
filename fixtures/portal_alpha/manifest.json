@@ -1,0 +1,89 @@
+{
+  "source": "alpha",
+  "base_url": "http://127.0.0.1:5000",
+  "generated_at": "2026-11-13T01:54:13+00:00",
+  "entries": [
+    {
+      "source": "alpha",
+      "url": "http://127.0.0.1:5000/alpha/catalog?page=1",
+      "kind": "list",
+      "file": "list-1.html",
+      "status_code": 200,
+      "byte_count": 2830,
+      "sha256": "7c63796150ecba0a4ca5ad4ba349d67bb0fff22131eaf783507694e95e630849",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "alpha",
+      "url": "http://127.0.0.1:5000/alpha/catalog?page=2",
+      "kind": "list",
+      "file": "list-2.html",
+      "status_code": 200,
+      "byte_count": 2502,
+      "sha256": "eb9cfee5586ab0ebf9f64a65e26b47ecc865c7b3e046e2d24176d6ee598860dd",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "alpha",
+      "url": "http://127.0.0.1:5000/alpha/dataset/air-quality-2023",
+      "kind": "detail",
+      "item_id": "air-quality-2023",
+      "file": "detail-air-quality-2023.html",
+      "status_code": 200,
+      "byte_count": 3030,
+      "sha256": "461e57ccfcc458a29ea9593351516cd5a4f14dd8f13e81bf370665fa9699a2f9",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "alpha",
+      "url": "http://127.0.0.1:5000/alpha/dataset/urban-tree-canopy-2022",
+      "kind": "detail",
+      "item_id": "urban-tree-canopy-2022",
+      "file": "detail-urban-tree-canopy-2022.html",
+      "status_code": 200,
+      "byte_count": 2916,
+      "sha256": "494997ecb44737c5f5371a665fdbd002aecd85ab67b8f97b4557b534b56425e1",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "alpha",
+      "url": "http://127.0.0.1:5000/alpha/dataset/metro-transit-ridership",
+      "kind": "detail",
+      "item_id": "metro-transit-ridership",
+      "file": "detail-metro-transit-ridership.html",
+      "status_code": 200,
+      "byte_count": 2791,
+      "sha256": "471c556de1362e356acda3e12e3484b8fd6d6b658f25913c2aa80f56364445a9",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "alpha",
+      "url": "http://127.0.0.1:5000/alpha/dataset/municipal-budget-fy2023",
+      "kind": "detail",
+      "item_id": "municipal-budget-fy2023",
+      "file": "detail-municipal-budget-fy2023.html",
+      "status_code": 200,
+      "byte_count": 2833,
+      "sha256": "c2b66b5045cba1dd7768f50a42be8f5ec55ef1e66f6ed584400cbcbbae9849bf",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    },
+    {
+      "source": "alpha",
+      "url": "http://127.0.0.1:5000/alpha/dataset/public-library-checkouts-2023",
+      "kind": "detail",
+      "item_id": "public-library-checkouts-2023",
+      "file": "detail-public-library-checkouts-2023.html",
+      "status_code": 200,
+      "byte_count": 2774,
+      "sha256": "bad234f95c913ecbd4a0a5b7d6921f1819afb3d0d46c7e4b4c1b02c978cc92e4",
+      "content_type": "text/html; charset=utf-8",
+      "fetched_at": "2026-11-13T01:54:13+00:00"
+    }
+  ]
+}
