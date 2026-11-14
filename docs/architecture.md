@@ -149,10 +149,12 @@ raw_archive 表                          同样的审计字段 + 文件路径
 抽取顺序：
 
 1. **结构化 selector：** 读取 `detail.selectors`，取文本或属性。
-2. **键值回退：** 当 selector 未命中或未配置，扫描 `<dt>/<dd>`、两列表格、以冒号结尾的文本节点，并用 `FIELD_ALIASES` 做中英文键名匹配。
-3. **标题回退：** 使用 `<h1>` / document title。
+2. **键值回退：** 扫描 `<dt>/<dd>`、两列表格、以冒号结尾的文本节点，并用 `FIELD_ALIASES` 做中英文键名匹配（无论 selector 是否命中都会观察，作为旁证候选）。
+3. **标题回退：** 使用 `<h1>`；标题字段同样会被键值对路径旁证。
 4. **字段表回退：** 配置 selector 失败后，扫描表头含 field/name/type/description（及中文别名）的表格；识别不到类型时保留原值，交由校验产生告警。
 5. **资源回退：** 配置 selector 失败后，扫描下载型 `<a>`，从扩展名、`data-format`、链接文本推断格式，从相邻文本提取 `12.4 MB` / `18,432,000 bytes` 等大小。
+
+**多候选仲裁（字段级）：** 每个字段不再“首命中即采用”，而是沿配置 selector、`<h1>`、键值对、发布方类名、面包屑等全部证据路径收集非空且取值不同的候选，记入该字段 trace 的 `candidates`（含取值、来源路径、命中位置、别名匹配级别、得分与 `adopted` 标记）。仲裁得分 = `detail.field_confidence` 声明的路径权重（缺失时用内置默认顺序 `selector > h1 > key-value > publisher-class > breadcrumb`）+ 别名匹配度加分（精确别名 20、包含匹配 10、无匹配 0）；得分并列时按候选出现先后裁决，落选候选写入 `rejected_reason`。最终采用路径记录在 trace 的 `adopted`。`fallback_used` 只反映**最终采用值**是否来自启发式路径，落选的启发式旁证不会把字段标记为回退；若回退路径被采用但页面只给出空值（如空键值单元格），则保留无候选的回退 trace。
 
 每条 record 附带：
 
@@ -171,14 +173,21 @@ raw_archive 表                          同样的审计字段 + 文件路径
                  "source_selector": "...", "location": "..."}],
   "extraction": {
     "fallback_used": true,
-    "fields": {"temporal": {"selector": "...", "fallback": true,
-                            "location": "...", "snippet": "..."}},
+    "fields": {"temporal": {"selector": "heuristic:key-value[Time coverage]",
+                            "path": "heuristic:key-value", "adopted": "heuristic:key-value",
+                            "fallback": true, "location": "...", "snippet": "...",
+                            "candidates": [{"value": "...", "path": "heuristic:key-value",
+                                            "selector": "...", "match": "exact",
+                                            "location": "...", "snippet": "...",
+                                            "path_weight": 60, "alias_score": 20,
+                                            "score": 80, "order": 1, "adopted": true,
+                                            "rejected_reason": null}]}},
     "lists": {"resources": {"fallback": true, "location": "..."}}
   }
 }
 ```
 
-`location` 是简化的 DOM 路径，`snippet` 最长 160 字符。这样即使抽取误判，也能从档案定位到原始页面节点。
+`location` 是简化的 DOM 路径，`snippet` 最长 160 字符。这样即使抽取误判，也能从档案定位到原始页面节点；`candidates` 与 `rejected_reason` 则让字段取值的仲裁过程可解释、可复核。
 
 **失败策略：** 解析异常按详情页记入 source 错误。缺少具体字段不抛异常，由下一阶段生成字段级 finding。
 

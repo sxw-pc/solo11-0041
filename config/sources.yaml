@@ -97,6 +97,14 @@ sources:
       item_id_regex: "([^/?#]+)/?$"
     # 仅声明结构稳定的字段；其余字段由 extract.py 的 dt/表格启发式回退。
     detail:
+      # 候选仲裁权重：配置 selector 优先，h1/键值对/类名/面包屑依次降级；
+      # 未在此声明的路径按 extract.DEFAULT_PATH_WEIGHTS 处理。
+      field_confidence:
+        selector: 100
+        "heuristic:h1": 70
+        "heuristic:key-value": 60
+        "heuristic:publisher-class": 45
+        "heuristic:breadcrumb": 30
       selectors:
         title: "article.record h1"
         category: "p.eyebrow span"

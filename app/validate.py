@@ -107,7 +107,12 @@ def validate_record(record: dict, rules: dict) -> list[dict]:
 
     extraction = record.get("extraction") or {}
     if extraction.get("fallback_used"):
-        field_names = [name for name, trace in (extraction.get("fields") or {}).items() if trace.get("fallback")]
+        # 只统计最终采用来源（adopted）为启发式的字段；落选的启发式候选不算回退。
+        field_names = [
+            name
+            for name, trace in (extraction.get("fields") or {}).items()
+            if trace.get("fallback") and trace.get("adopted")
+        ]
         lists = [name for name, trace in (extraction.get("lists") or {}).items() if trace.get("fallback")]
         evidence = "fallback used: " + ", ".join(field_names + [f"{name}_list" for name in lists])
         findings.append(

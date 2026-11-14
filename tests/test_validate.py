@@ -53,13 +53,46 @@ def test_warning_levels_for_size_type_and_fallback(rules):
                     "url": "http://127.0.0.1/f.csv"}],
         extraction={
             "fallback_used": True,
-            "fields": {"temporal": {"fallback": True}},
+            "fields": {"temporal": {"fallback": True, "adopted": "heuristic:key-value"}},
             "lists": {"resources": {"fallback": True}},
         },
     )
     findings = validate_record(record, rules)
     warnings = {item["rule_id"] for item in findings if item["severity"] == "warn"}
     assert {"field.type_unknown", "resource.size_not_numeric", "extraction.fallback_used"} <= warnings
+
+
+def test_fallback_evidence_reads_adopted_trace_only(rules):
+    # category 的启发式候选落选（selector 采用），不得出现在 fallback 证据里；
+    # temporal 最终采用启发式，必须带上具体字段名。
+    record = _record(
+        extraction={
+            "fallback_used": True,
+            "fields": {
+                "category": {
+                    "fallback": False,
+                    "adopted": "selector",
+                    "candidates": [
+                        {"path": "selector", "adopted": True, "value": "Environment"},
+                        {"path": "heuristic:breadcrumb", "adopted": False, "value": "Env"},
+                    ],
+                },
+                "temporal": {
+                    "fallback": True,
+                    "adopted": "heuristic:key-value",
+                    "candidates": [
+                        {"path": "heuristic:key-value", "adopted": True, "value": "2020"},
+                    ],
+                },
+            },
+            "lists": {},
+        }
+    )
+    findings = validate_record(record, rules)
+    fallback = [item for item in findings if item["rule_id"] == "extraction.fallback_used"]
+    assert len(fallback) == 1
+    assert "temporal" in fallback[0]["evidence"]
+    assert "category" not in fallback[0]["evidence"]
 
 
 def test_cross_source_field_gap_is_info(rules):
