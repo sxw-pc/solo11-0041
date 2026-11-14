@@ -99,13 +99,15 @@ CREATE TABLE IF NOT EXISTS raw_archive (
     source TEXT NOT NULL,
     url TEXT NOT NULL,
     kind TEXT NOT NULL,
+    item_id TEXT NOT NULL DEFAULT '',
+    stable_id TEXT NOT NULL,
     file_path TEXT NOT NULL,
     status_code INTEGER NOT NULL,
     byte_count INTEGER NOT NULL,
     fetched_at TEXT NOT NULL,
     sha256 TEXT NOT NULL,
     content_type TEXT,
-    UNIQUE (run_id, url, kind)
+    UNIQUE (run_id, stable_id)
 );
 
 CREATE TABLE IF NOT EXISTS field_transform (
@@ -154,4 +156,5 @@ CREATE INDEX IF NOT EXISTS idx_dataset_temporal ON dataset(temporal_start, tempo
 CREATE INDEX IF NOT EXISTS idx_finding_severity ON validation_finding(severity);
 CREATE INDEX IF NOT EXISTS idx_finding_dataset ON validation_finding(dataset_uid);
 CREATE INDEX IF NOT EXISTS idx_raw_url ON raw_archive(url);
+CREATE INDEX IF NOT EXISTS idx_raw_stable ON raw_archive(run_id, source, kind, item_id);
 """

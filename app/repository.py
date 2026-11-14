@@ -6,6 +6,8 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
+from .identity import stable_archive_id
+
 
 def _connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
@@ -126,22 +128,44 @@ def _dataset_instances(conn: sqlite3.Connection, dataset_uid: str) -> list[dict]
 def _provenance(conn: sqlite3.Connection, instances: list[dict], run_id: str | None = None) -> list[dict]:
     output = []
     for instance in instances:
-        if run_id:
-            raw = conn.execute(
-                "SELECT run_id, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type "
-                "FROM raw_archive WHERE url=? AND run_id=? ORDER BY fetched_at DESC LIMIT 1",
-                (instance.get("source_url"), run_id),
-            ).fetchone()
+        source = instance.get("source")
+        item_id = instance.get("source_item_id") or ""
+        stable_id = stable_archive_id(source or "", "detail", item_id) if item_id else None
+        if stable_id:
+            if run_id:
+                raw = conn.execute(
+                    "SELECT run_id, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type "
+                    "FROM raw_archive WHERE stable_id=? AND run_id=? ORDER BY fetched_at DESC LIMIT 1",
+                    (stable_id, run_id),
+                ).fetchone()
+            else:
+                raw = conn.execute(
+                    "SELECT run_id, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type "
+                    "FROM raw_archive WHERE stable_id=? ORDER BY fetched_at DESC LIMIT 1",
+                    (stable_id,),
+                ).fetchone()
         else:
-            raw = conn.execute(
-                "SELECT run_id, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type "
-                "FROM raw_archive WHERE url=? ORDER BY fetched_at DESC LIMIT 1",
-                (instance.get("source_url"),),
-            ).fetchone()
+            raw = None
+        if raw is None:
+            # 旧留档或缺少 item_id 的实例回退到 URL 命中，保持向后兼容。
+            if run_id:
+                raw = conn.execute(
+                    "SELECT run_id, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type "
+                    "FROM raw_archive WHERE url=? AND run_id=? ORDER BY fetched_at DESC LIMIT 1",
+                    (instance.get("source_url"), run_id),
+                ).fetchone()
+            else:
+                raw = conn.execute(
+                    "SELECT run_id, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type "
+                    "FROM raw_archive WHERE url=? ORDER BY fetched_at DESC LIMIT 1",
+                    (instance.get("source_url"),),
+                ).fetchone()
         output.append(
             {
-                "source": instance.get("source"),
+                "source": source,
                 "url": instance.get("source_url"),
+                "item_id": item_id or None,
+                "stable_id": stable_id,
                 "raw_archive": dict(raw) if raw else None,
             }
         )

@@ -16,6 +16,7 @@ from .discover import discover_source
 from .export import export_archive
 from .extract import extract_detail
 from .fetcher import Fetcher
+from .identity import derive_item_id, stable_archive_id
 from .normalize import load_rules, normalize_record
 from .store import Store
 from .validate import validate_cross_source, validate_record
@@ -106,15 +107,18 @@ def _run_http_sources(
     errors: list[str] = []
     run_info: dict[str, dict] = {}
     raw_pages = 0
+    archived_pages: set[str] = set()
     defaults = config.get("defaults") or {}
 
     def callback(page) -> None:
         nonlocal raw_pages
         store.archive_raw(
             run_id, page.source, page.url, page.kind, page.file_path, page.status_code,
-            page.byte_count, page.fetched_at, page.sha256, page.content_type,
+            page.byte_count, page.fetched_at, page.sha256, page.content_type, page.item_id,
         )
-        raw_pages += 1
+        if page.stable_id not in archived_pages:
+            archived_pages.add(page.stable_id)
+            raw_pages += 1
 
     fetcher = Fetcher(
         raw_root, run_id, defaults,
@@ -132,9 +136,12 @@ def _run_http_sources(
                 pages, discovered = result.page_count, result.discovered
                 for entry in result.entries:
                     try:
-                        page = fetcher.fetch(entry["url"], source, "detail")
+                        page = fetcher.fetch(
+                            entry["url"], source, "detail", item_id=entry.get("item_id")
+                        )
                         record = extract_detail(page.html, entry["url"], source, cfg)
-                        record["source_item_id"] = entry.get("item_id")
+                        # 与留档使用同一解析后的 item_id，保证 provenance 按稳定键命中。
+                        record["source_item_id"] = page.item_id or entry.get("item_id")
                         raw_records.append(record)
                     except Exception as exc:  # 单页失败不终止整个数据源
                         source_errors.append(f"{entry.get('url')}: {exc}")
@@ -170,6 +177,7 @@ def _run_replay_sources(
     errors: list[str] = []
     run_info: dict[str, dict] = {}
     raw_pages = 0
+    archived_pages: set[str] = set()
     by_source: dict[str, list[dict]] = {name: [] for name in selected}
     for entry in entries:
         if entry.get("source") in by_source:
@@ -195,19 +203,25 @@ def _run_replay_sources(
             if entry.get("sha256") and entry["sha256"] != digest:
                 source_errors.append(f"sha256 不匹配 {path}")
                 continue
+            item_id = entry.get("item_id")
+            stable_id = stable_archive_id(source, kind, item_id or derive_item_id(
+                str(entry.get("url")), kind
+            ))
             store.archive_raw(
                 run_id, source, str(entry.get("url")), kind, str(path),
                 int(entry.get("status_code", 200)), len(body),
                 str(entry.get("fetched_at") or _now()), digest,
-                entry.get("content_type", "text/html"),
+                entry.get("content_type", "text/html"), item_id,
             )
-            raw_pages += 1
+            if stable_id not in archived_pages:
+                archived_pages.add(stable_id)
+                raw_pages += 1
             if kind == "list":
                 continue
             html = body.decode("utf-8", errors="replace")
             try:
                 record = extract_detail(html, str(entry.get("url")), source, config["sources"][source])
-                record["source_item_id"] = entry.get("item_id")
+                record["source_item_id"] = item_id or derive_item_id(str(entry.get("url")), kind)
                 raw_records.append(record)
             except Exception as exc:
                 source_errors.append(f"{entry.get('url')}: {exc}")

@@ -133,10 +133,13 @@ pages[]             RawPage 对象（供留档）
 每个响应生成：
 
 ```text
-data/raw/<run_id>/<sha1(url)>.html      原始字节，sha256 基于响应体
-data/raw/<run_id>/manifest.json         所有条目的 URL / kind / status / bytes / sha256 / fetched_at
+data/raw/<run_id>/<stable_id>.html      原始字节，sha256 基于响应体
+data/raw/<run_id>/manifest.json         所有条目的 URL / final_url / item_id / stable_id / kind /
+                                        status / bytes / sha256 / fetched_at
 raw_archive 表                          同样的审计字段 + 文件路径
 ```
+
+`stable_id` 由 `source`、`kind` 与 `item_id` 派生；详情页的 `item_id` 取跟随重定向后最终 URL 的路径末段，列表页没有 `item_id` 时回退到 URL 指纹。因此两个入口 URL 经 302/307 收敛到同一详情页时，只会产生一个落地文件、一条 manifest 条目和一行 `raw_archive`，`_provenance` 也能按同一稳定键唯一命中。
 
 文件写入后生成 `RawPage`，其 `html` 字段供后续解析；资源二进制链接仅被记录为字符串，不会请求。
 
@@ -277,7 +280,7 @@ dataset_uid = "ds_"   + sha1(title_norm|publisher_norm|period[|source|url])[:16]
 - `field_transform` 按 `(instance_id, field_name, rule)` upsert，并清除当前数据集不再产生的转换。
 - `validation_finding` 以数据集为单位先删后写，保证 findings 与本次规范状态一致。
 - `merge_decisions` 按 `dataset_uid` upsert；若数据集不再跨源，删除旧决策；更新语句不触碰 `manual_override`。
-- `raw_archive` 唯一键是 `(run_id, url, kind)`。重复运行会增加新的 raw 审计行，这是有意的：每次抓取都应有自己的留档和 sha256。
+- `raw_archive` 唯一键是 `(run_id, stable_id)`，`stable_id` 由 `(source, kind, item_id)` 派生。同一 run 内同一逻辑页面的重复留档（例如两个入口 URL 重定向到同一详情页）会 upsert 同一行；不同 run 仍各留一行，这是有意的：每次运行都应有自己的留档和 sha256。
 
 事务：每个 `persist_groups` 调用使用一个 SQLite 上下文事务；`record_run`、`archive_raw` 在抓取过程中即时提交，确保运行失败后仍保留审计。
 
@@ -293,7 +296,7 @@ dataset_uid = "ds_"   + sha1(title_norm|publisher_norm|period[|source|url])[:16]
 - 类别、发布方、严重级别分布。
 - 每个数据集的字段、资源、来源实例、抽取 JSON、findings、合并决策和 raw provenance。
 
-provenance 优先匹配当前 `run_id` 的 `raw_archive`；手工导出未指定 run 时回退到该 URL 的最新留档。这样重放导出的溯源不会误指向后续 HTTP 运行。
+provenance 优先用 `(source, kind='detail', source_item_id)` 派生的 `stable_id` 命中当前 `run_id` 的 `raw_archive`；没有 `item_id` 或旧库缺少稳定键时才回退到 URL。手工导出未指定 run 时取该稳定键最新的一条。这样重放导出的溯源不会误指向后续 HTTP 运行，两个入口 URL 重定向到同一详情页时也能命中同一行留档。
 
 导出目录：
 

@@ -148,9 +148,9 @@ data/exports/<run_id>/
 
 **来源溯源**
 - `alpha` — http://127.0.0.1:5000/alpha/dataset/air-quality-2023
-  留档: data/raw/<run_id>/<sha1(url)>.html · sha256 ...
+  留档: data/raw/<run_id>/<stable_id>.html · sha256 ...
 - `beta` — http://127.0.0.1:5000/beta/record/hde-001
-  留档: data/raw/<run_id>/<sha1(url)>.html · sha256 ...
+  留档: data/raw/<run_id>/<stable_id>.html · sha256 ...
 
 **告警（1）**
 - **INFO** `cross_source.field_count_gap` · `fields` · __cross_source__ — ...
@@ -274,7 +274,7 @@ sources:
 | `validation_finding` | `error / warn / info` 级校验发现与证据 |
 | `merge_decisions` | 合并成员、依据、相似度分数、人工覆盖标记的保留位置 |
 
-写入使用确定性的 `dataset_uid`、实例 ID 和内容指纹。重复运行时，数据集级计数区分 `new / updated / unchanged / merged`；字段、资源、转换、校验发现和合并决策同样使用 upsert 或按数据集替换，不会重复堆积。`raw_archive` 按 `(run_id, url, kind)` 唯一，因此重复运行会增加新的审计留档，但不会污染数据集计数。
+写入使用确定性的 `dataset_uid`、实例 ID 和内容指纹。重复运行时，数据集级计数区分 `new / updated / unchanged / merged`；字段、资源、转换、校验发现和合并决策同样使用 upsert 或按数据集替换，不会重复堆积。`raw_archive` 按 `(run_id, stable_id)` 唯一，`stable_id` 由 `(source, kind, item_id)` 派生，因此同一 run 内两个入口 URL 重定向到同一详情页只留一行，而重复运行仍会增加新的审计留档，但不会污染数据集计数。
 
 ## 本地控制 API
 

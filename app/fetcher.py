@@ -14,6 +14,8 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 
+from .identity import derive_item_id, item_id_from_url, stable_archive_id
+
 
 class FetchError(RuntimeError):
     """抓取失败（网络、状态码、响应体超限或目标越界）。"""
@@ -31,6 +33,8 @@ class RawPage:
     sha256: str
     content_type: str
     fetched_at: str
+    item_id: str = ""
+    stable_id: str = ""
 
 
 def _now() -> str:
@@ -51,8 +55,9 @@ def _is_loopback(host: str | None) -> bool:
 class Fetcher:
     """只访问回环地址的轻量抓取器。
 
-    raw_root/<run_id>/<sha1(url)>.html 保存原始 HTML；
-    manifest.json 供 --replay-from 使用，不依赖数据库。
+    raw_root/<run_id>/<stable_id>.html 保存原始 HTML，stable_id 由
+    source、kind 与 item_id 派生；同一 run 内同一逻辑页面只保留一份文件、
+    一条 manifest 条目。manifest.json 供 --replay-from 使用，不依赖数据库。
     """
 
     def __init__(
@@ -91,6 +96,7 @@ class Fetcher:
         self.archive_callback = archive_callback
         self._last_request = 0.0
         self._entries: list[dict] = []
+        self._entry_index: dict[str, int] = {}
         self._dir = self.raw_root / run_id
         self._dir.mkdir(parents=True, exist_ok=True)
         self._closed = False
@@ -136,7 +142,13 @@ class Fetcher:
             response.close()
         raise FetchError(f"重定向次数超过上限: {url}")
 
-    def fetch(self, url: str, source: str, kind: str = "page") -> RawPage:
+    def fetch(
+        self,
+        url: str,
+        source: str,
+        kind: str = "page",
+        item_id: str | None = None,
+    ) -> RawPage:
         if self._closed:
             raise FetchError("Fetcher 已关闭")
         self._assert_loopback(url)
@@ -172,7 +184,9 @@ class Fetcher:
             if response.status_code >= 500 and attempt < self.max_retries:
                 last_error = FetchError(f"上游 {response.status_code}")
                 continue
-            page = self._archive(response, url, final_url, body, source, kind)
+            page = self._archive(
+                response, url, final_url, body, source, kind, item_id=item_id
+            )
             if response.status_code >= 400:
                 raise FetchError(f"HTTP {response.status_code}: {url} (raw={page.file_path})")
             return page
@@ -186,9 +200,26 @@ class Fetcher:
         body: bytes,
         source: str,
         kind: str,
+        *,
+        item_id: str | None = None,
     ) -> RawPage:
         digest = hashlib.sha256(body).hexdigest()
-        path = self._dir / f"{hashlib.sha1(url.encode('utf-8')).hexdigest()}.html"
+        # 详情页 item_id 优先取最终 URL（跟随重定向后）的路径末段：两个入口
+        # URL 收敛到同一详情页时会得到同一个 item_id 与 stable_id，从而共用
+        # 一个落地文件、一条 manifest 条目和一行 raw_archive。未发生重定向
+        # 时沿用发现阶段给出的 item_id，避免查询参数型详情页共用路径末段。
+        if kind == "list":
+            resolved_item_id = item_id or derive_item_id(url, kind)
+        elif final_url != url:
+            resolved_item_id = (
+                item_id_from_url(final_url) or item_id or derive_item_id(url, kind)
+            )
+        else:
+            resolved_item_id = (
+                item_id or item_id_from_url(final_url) or derive_item_id(url, kind)
+            )
+        stable_id = stable_archive_id(source, kind, resolved_item_id)
+        path = self._dir / f"{stable_id}.html"
         path.write_bytes(body)
         encoding = response.encoding or "utf-8"
         try:
@@ -206,21 +237,28 @@ class Fetcher:
             sha256=digest,
             content_type=response.headers.get("Content-Type", "text/html"),
             fetched_at=_now(),
+            item_id=resolved_item_id,
+            stable_id=stable_id,
         )
-        self._entries.append(
-            {
-                "source": source,
-                "url": url,
-                "final_url": final_url,
-                "kind": kind,
-                "file": path.name,
-                "status_code": page.status_code,
-                "byte_count": page.byte_count,
-                "sha256": digest,
-                "content_type": page.content_type,
-                "fetched_at": page.fetched_at,
-            }
-        )
+        entry = {
+            "source": source,
+            "url": url,
+            "final_url": final_url,
+            "kind": kind,
+            "item_id": resolved_item_id,
+            "stable_id": stable_id,
+            "file": path.name,
+            "status_code": page.status_code,
+            "byte_count": page.byte_count,
+            "sha256": digest,
+            "content_type": page.content_type,
+            "fetched_at": page.fetched_at,
+        }
+        if stable_id in self._entry_index:
+            self._entries[self._entry_index[stable_id]] = entry
+        else:
+            self._entry_index[stable_id] = len(self._entries)
+            self._entries.append(entry)
         if self.archive_callback:
             self.archive_callback(page)
         return page

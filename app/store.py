@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .dedupe import content_fingerprint
+from .identity import derive_item_id, stable_archive_id
 from .schema import SCHEMA_SQL
 
 
@@ -32,8 +33,31 @@ class Store:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
+        legacy_raw = self._detach_legacy_raw_archive()
         self.conn.executescript(SCHEMA_SQL)
+        for row in legacy_raw:
+            self.archive_raw(
+                row["run_id"], row["source"], row["url"], row["kind"], row["file_path"],
+                row["status_code"], row["byte_count"], row["fetched_at"], row["sha256"],
+                row.get("content_type"),
+            )
         self.conn.commit()
+
+    def _detach_legacy_raw_archive(self) -> list[dict]:
+        """旧库的 raw_archive 以 (run_id, url, kind) 为键；先取出数据再重建表。"""
+        exists = self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='raw_archive'"
+        ).fetchone()
+        if not exists:
+            return []
+        columns = {
+            str(row["name"]) for row in self.conn.execute("PRAGMA table_info(raw_archive)")
+        }
+        if "stable_id" in columns:
+            return []
+        rows = [dict(row) for row in self.conn.execute("SELECT * FROM raw_archive")]
+        self.conn.executescript("DROP TABLE raw_archive;")
+        return rows
 
     def close(self) -> None:
         self.conn.close()
@@ -65,19 +89,26 @@ class Store:
 
     def archive_raw(self, run_id: str, source: str, url: str, kind: str, file_path: str,
                     status_code: int, byte_count: int, fetched_at: str, sha256: str,
-                    content_type: str | None) -> None:
-        raw_id = _sid("raw_", run_id, url, kind)
+                    content_type: str | None, item_id: str | None = None) -> str:
+        """按 (source, kind, item_id) 稳定键落档；同一 run 内重复留档 upsert 同一行。"""
+        resolved_item_id = item_id or derive_item_id(url, kind)
+        stable_id = stable_archive_id(source, kind, resolved_item_id)
+        raw_id = _sid("raw_", run_id, stable_id)
         self.conn.execute(
             """INSERT INTO raw_archive
-            (raw_id, run_id, source, url, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(run_id, url, kind) DO UPDATE SET file_path=excluded.file_path,
-            status_code=excluded.status_code, byte_count=excluded.byte_count,
-            fetched_at=excluded.fetched_at, sha256=excluded.sha256, content_type=excluded.content_type""",
-            (raw_id, run_id, source, url, kind, file_path, status_code, byte_count,
-             fetched_at, sha256, content_type),
+            (raw_id, run_id, source, url, kind, item_id, stable_id, file_path, status_code,
+             byte_count, fetched_at, sha256, content_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(run_id, stable_id) DO UPDATE SET raw_id=excluded.raw_id,
+            source=excluded.source, url=excluded.url, item_id=excluded.item_id,
+            file_path=excluded.file_path, status_code=excluded.status_code,
+            byte_count=excluded.byte_count, fetched_at=excluded.fetched_at,
+            sha256=excluded.sha256, content_type=excluded.content_type""",
+            (raw_id, run_id, source, url, kind, resolved_item_id, stable_id, file_path,
+             status_code, byte_count, fetched_at, sha256, content_type),
         )
         self.conn.commit()
+        return raw_id
 
     # ---------- 主写入 ----------
     def persist_groups(self, run_id: str, groups: list[dict]) -> dict:
