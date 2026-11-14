@@ -252,11 +252,11 @@ sources:
 ### `config/normalize_rules.yaml`
 
 - `categories`、`frequency`、`formats`、`field_types`、`geography`、`license_aliases`：同义词到规范值的映射。
-- `size_units`：KB/MB/GiB 等向字节换算；未知或非数字大小保留原文并产生告警。
+- `size_units`：单位到字节的换算系数。解析器只使用此表，不在代码里硬编码十进制 / 二进制差异；如需 `MB`=1000² 与 `MiB`=1024²，直接在配置中分别声明。`12.4 MB (13002342 bytes)` 这类同时包含换算值与括号精确值的表达式按明确优先级取值：括号内纯字节数优先，其次单位换算；两种来源互相矛盾或出现多个精确值时报 `conflicting_values`，不会输出自相矛盾的 `size_bytes`。
 - `dedupe.title_similarity_threshold`：跨源标题相似度阈值（默认 `0.86`）。
 - `dedupe.require_same_publisher / period / geography`：合并前的硬约束。
 - `dedupe.field_priority`：越靠前优先级越高（`alpha > beta > gamma`），用于标量字段补齐与主来源选择。
-- `validation.required`：缺失即产生 `error`；枚举不合法、时间倒置、未知字段类型、非数字大小等产生 `warn`；跨源字段数差距产生非阻断 `info`。
+- `validation.required`：缺失即产生 `error`；枚举不合法、时间倒置、未知字段类型、非法大小等产生 `warn`；跨源字段数差距产生非阻断 `info`。大小无法解析时按原因细分规则：未知单位为 `resource.size_unknown_unit`，非法数字为 `resource.size_invalid_number`，多值歧义为 `resource.size_ambiguous`，精确值与换算值冲突为 `resource.size_conflict`，其余情况为 `resource.size_not_numeric`；findings 同时携带 `size_reason` 与 `size_source`。
 
 ## 管道输出与 SQLite 表
 

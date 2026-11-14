@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .dedupe import content_fingerprint
+from .normalize import resource_fingerprint_view
 from .schema import SCHEMA_SQL
 
 
@@ -148,7 +149,8 @@ class Store:
                 "publisher": instance.get("publisher"), "temporal_start": instance.get("temporal_start"),
                 "temporal_end": instance.get("temporal_end"), "geography": instance.get("geography"),
                 "license": instance.get("license"), "update_frequency": instance.get("update_frequency"),
-                "fields": instance.get("fields"), "resources": instance.get("resources"),
+                "fields": instance.get("fields"),
+                "resources": [resource_fingerprint_view(item) for item in instance.get("resources") or []],
             })
             self.conn.execute(
                 """INSERT INTO dataset_instance
@@ -198,7 +200,8 @@ class Store:
         for ordinal, resource in enumerate(group.get("resources") or [], start=1):
             resource_id = _sid("res_", dataset_uid, ordinal)
             resource_ids.append(resource_id)
-            fingerprint = content_fingerprint(resource)
+            # 指纹使用与写法无关的 size_key，保留 size_raw 原文用于展示与溯源。
+            fingerprint = content_fingerprint(resource_fingerprint_view(resource))
             self.conn.execute(
                 """INSERT INTO resource
                 (resource_id, dataset_uid, format, size_bytes, size_raw, url, source_selector, location,

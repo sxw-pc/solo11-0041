@@ -6,7 +6,7 @@ import hashlib
 import json
 from difflib import SequenceMatcher
 
-from .normalize import normalize_title
+from .normalize import normalize_title, resource_fingerprint_view
 
 
 def content_fingerprint(value: object) -> str:
@@ -122,7 +122,7 @@ def _make_group(members: list[dict], score: float, basis: str, config: dict) -> 
         "license": group["license"],
         "update_frequency": group["update_frequency"],
         "fields": group["fields"],
-        "resources": group["resources"],
+        "resources": [resource_fingerprint_view(item) for item in group["resources"]],
         "instances": sorted(item.get("instance_id", "") for item in instances),
         "sources": sorted({item.get("source", "") for item in instances}),
     }

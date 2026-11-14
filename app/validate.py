@@ -4,7 +4,25 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from .normalize import (
+    SIZE_REASON_AMBIGUOUS,
+    SIZE_REASON_CONFLICT,
+    SIZE_REASON_INVALID_NUMBER,
+    SIZE_REASON_UNKNOWN_UNIT,
+    parse_size_details,
+)
+
 SEVERITY_ORDER = {"error": 0, "warn": 1, "info": 2}
+
+# 大小解析失败原因到校验规则 ID 的映射；未知单位与非法数字各有独立规则，
+# 便于告警消费方区分“单位不认识”和“数字本身不合法”。
+_SIZE_RULE_IDS = {
+    SIZE_REASON_UNKNOWN_UNIT: "resource.size_unknown_unit",
+    SIZE_REASON_INVALID_NUMBER: "resource.size_invalid_number",
+    SIZE_REASON_AMBIGUOUS: "resource.size_ambiguous",
+    SIZE_REASON_CONFLICT: "resource.size_conflict",
+}
+DEFAULT_SIZE_RULE_ID = "resource.size_not_numeric"
 
 
 def _evidence(value: object, limit: int = 240) -> str:
@@ -30,6 +48,33 @@ def _finding(
 
 def _is_missing(value: object) -> bool:
     return value is None or value == "" or value == [] or value == {}
+
+
+def _size_finding(index: int, raw_size: str, rules: dict, instance_id: str | None) -> dict:
+    """按解析失败原因生成字段级告警，把“未知单位”和“非法数字”区分开。
+
+    校验阶段用与归一化完全相同的 `size_units` 配置重新解析一次，因此即使调用方
+    直接构造 record（未经 `normalize_record`），也能得到一致的结构化原因。
+    """
+    parsed = parse_size_details(raw_size, (rules or {}).get("size_units") or {})
+    reason, source = parsed.reason, parsed.source
+    rule_id = _SIZE_RULE_IDS.get(str(reason), DEFAULT_SIZE_RULE_ID)
+    field_name = f"resources[{index}].size"
+    if reason == SIZE_REASON_UNKNOWN_UNIT:
+        detail = f" (unit '{parsed.unit}')" if parsed.unit else ""
+        evidence = f"size value '{raw_size}' uses an unknown unit{detail}"
+    elif reason == SIZE_REASON_INVALID_NUMBER:
+        evidence = f"size value '{raw_size}' has an invalid number"
+    elif reason == SIZE_REASON_AMBIGUOUS:
+        evidence = f"size value '{raw_size}' contains multiple conflicting quantities"
+    elif reason == SIZE_REASON_CONFLICT:
+        evidence = f"size value '{raw_size}' has inconsistent exact and converted values"
+    else:
+        evidence = f"size value '{raw_size}' cannot be converted to bytes"
+    finding = _finding("warn", rule_id, field_name, evidence, instance_id)
+    finding["size_reason"] = reason
+    finding["size_source"] = source
+    return finding
 
 
 def validate_record(record: dict, rules: dict) -> list[dict]:
@@ -85,15 +130,7 @@ def validate_record(record: dict, rules: dict) -> list[dict]:
     for index, resource in enumerate(record.get("resources") or [], start=1):
         raw_size = _evidence(resource.get("size_raw"))
         if raw_size and resource.get("size_bytes") is None:
-            findings.append(
-                _finding(
-                    "warn",
-                    "resource.size_not_numeric",
-                    f"resources[{index}].size",
-                    f"size value '{raw_size}' cannot be converted to bytes",
-                    instance_id,
-                )
-            )
+            findings.append(_size_finding(index, raw_size, rules, instance_id))
         if _is_missing(resource.get("url")):
             findings.append(
                 _finding(

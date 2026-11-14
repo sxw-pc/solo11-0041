@@ -191,7 +191,7 @@ raw_archive 表                          同样的审计字段 + 文件路径
 | category / frequency / license | 配置同义词表，宽松键匹配大小写、斜杠和连字符 | `Environmental monitoring` → `environment` |
 | format / field type | 别名表 + 扩展名 | `Float` → `number` |
 | geography | 规范地名表；支持国家与州 | `United States` → `US`；`Washington` → `US-WA` |
-| size | 数字 + 单位换算，保留 `size_raw` | `18,432,000 bytes` / `4.5 MB` → 字节 |
+| size | 数字 + 单位换算；括号精确字节数优先；来源与失败原因结构化 | `18,432,000 bytes` / `4.5 MB` / `12.4 MB (13002342 bytes)` → 字节 |
 | temporal | 支持 `年`、`年-月`、`年-月-日`、`/`、`to`、`–` 分隔；单值按整年展开 | `2023` → `2023-01-01` / `2023-12-31` |
 | title | NFKC、casefold、去标点、压缩空白，用于相似度 | `Air Quality (2023)` → `air quality 2023` |
 
@@ -205,6 +205,14 @@ raw_archive 表                          同样的审计字段 + 文件路径
 
 **失败策略：** 无法解析的时间保留原文本，`temporal_start` 为空，由必填校验产生 `error`；无法解析的大小保留原文，由校验产生 `warn`。
 
+大小解析使用 `parse_size_details`，返回 `size_bytes / source / reason`，优先级固定且与书写顺序无关：
+
+1. 括号内纯字节数（`(13002342 bytes)`）→ `source=parenthesized_bytes`；不在括号内时 → `exact_bytes`。
+2. 其余带单位数量按 `config/normalize_rules.yaml` 的 `size_units` 换算 → `source=unit_conversion`；代码不硬编码十进制 / 二进制差异。
+3. 无法解析 → `source=unparseable`，`reason` 区分 `unknown_unit` / `invalid_number` / `not_numeric` / `ambiguous_expression` / `conflicting_values` / `empty`。
+
+精确值与换算值同时出现且不一致（四舍五入到字节后仍不相等），或出现多个互相矛盾的精确值时，返回 `conflicting_values`，不猜测任一来源，因此不会产生自相矛盾的 `size_bytes`。`size_source` / `size_reason` / `size_unit` 写入 `resources[N].size` 的字段级 transform；同时生成与写法无关的 `size_key`（`bytes:<n>` 或 `unparseable:<reason>`），供内容指纹使用，使空格、顺序、千分位差异不会让同一语义的大小产生不同的 fingerprint。
+
 ### 阶段 5：校验与告警分级
 
 **模块：** `validate.validate_record`、`validate.validate_cross_source`
@@ -214,7 +222,7 @@ raw_archive 表                          同样的审计字段 + 文件路径
 | 级别 | 规则示例 | 是否阻断 |
 | --- | --- | --- |
 | `error` | 必填字段缺失、类别不在枚举、更新频率不在枚举、时间起点晚于终点 | 否 |
-| `warn` | 未知字段类型、大小非数字、资源 URL 缺失、使用启发式回退 | 否 |
+| `warn` | 未知字段类型、大小无法解析、资源 URL 缺失、使用启发式回退 | 否 |
 | `info` | 跨源合并组内字段数量差距超过绝对值和比例阈值 | 否 |
 
 跨源比较只针对同一合并簇内、至少两个 source 的实例。字段数量 `high - low >= absolute` 且 `(high-low)/high >= ratio` 时生成一条 `__cross_source__` finding。
