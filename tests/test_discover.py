@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
-from app.discover import discover_source
+from app.discover import TerminationReason, discover_source, source_summary
+from app.pipeline import load_sources
 
 
 class FakeFetcher:

@@ -126,10 +126,12 @@ def _run_http_sources(
             started = _now()
             clock = time.perf_counter()
             pages = discovered = 0
+            termination: str | None = None
             source_errors: list[str] = []
             try:
                 result = discover_source(fetcher.fetch, source, cfg)
                 pages, discovered = result.page_count, result.discovered
+                termination = result.termination.value if result.termination else None
                 for entry in result.entries:
                     try:
                         page = fetcher.fetch(entry["url"], source, "detail")
@@ -150,6 +152,7 @@ def _run_http_sources(
             errors.extend(f"{source}: {message}" for message in source_errors)
             run_info[source] = {
                 "status": status, "pages": pages, "discovered": discovered,
+                "termination": termination,
                 "extracted": len([r for r in raw_records if r.get("source") == source]),
                 "elapsed_ms": elapsed, "errors": source_errors,
             }
@@ -220,6 +223,7 @@ def _run_replay_sources(
         errors.extend(f"{source}: {message}" for message in source_errors)
         run_info[source] = {
             "status": status, "pages": pages, "discovered": discovered,
+            "termination": None,  # replay 按 manifest 重放，不经过翻页状态机
             "extracted": len([r for r in raw_records if r.get("source") == source]),
             "elapsed_ms": elapsed, "errors": source_errors,
         }
