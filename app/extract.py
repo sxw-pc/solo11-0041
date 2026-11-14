@@ -70,6 +70,20 @@ def _spec_parts(spec: object) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _record_error(errors: list[dict], field_name: str, exc: Exception) -> None:
+    """记录字段级解析错误：字段名、错误类型与单行简短信息。"""
+    message = re.sub(r"\s+", " ", str(exc) or exc.__class__.__name__).strip()
+    errors.append(
+        {"field": field_name, "type": exc.__class__.__name__, "message": message[:200]}
+    )
+
+
+def _failed_list_trace(config: dict, section: str) -> dict:
+    """列表整体解析失败时的空轨迹；fallback=False 以免污染回退告警基线。"""
+    selector = ((config.get("detail") or {}).get(section) or {}).get("selector")
+    return {"selector": selector, "fallback": False, "count": 0}
+
+
 def _select(soup: BeautifulSoup, spec: object) -> tuple[str | None, str | None, Tag | None]:
     selector, attr = _spec_parts(spec)
     if not selector:
@@ -226,14 +240,25 @@ def _fallback_resources(soup: BeautifulSoup, page_url: str) -> tuple[list[dict],
 
 
 def extract_detail(html: str, page_url: str, source: str, config: dict) -> dict:
-    """抽取单条详情记录，并返回字段级/列表级溯源信息。"""
+    """抽取单条详情记录，并返回字段级/列表级溯源信息。
+
+    单个标量字段或整张列表的解析异常被隔离在各自边界内：失败的标量字段按
+    缺失记 None、失败的列表记空列表，错误写入 extraction.errors，其余字段照常
+    产出。仅当 title 的结构化选择器与 h1 回退都拿不到值时才抛出页级异常。
+    """
     soup = BeautifulSoup(html, "html.parser")
     detail_cfg = config.get("detail") or {}
     values: dict[str, str | None] = {}
     traces: dict[str, dict] = {}
+    errors: list[dict] = []
 
     for field, spec in (detail_cfg.get("selectors") or {}).items():
-        selector, _attr, node = _select(soup, spec)
+        try:
+            selector, _attr, node = _select(soup, spec)
+        except Exception as exc:  # 单标量字段隔离：非法选择器不拖垮整页抽取
+            values[field] = None
+            _record_error(errors, field, exc)
+            continue
         if node is not None:
             values[field] = _clean(node.get_text(" ", strip=True))
             traces[field] = _trace(node, selector or "")
@@ -245,6 +270,11 @@ def extract_detail(html: str, page_url: str, source: str, config: dict) -> dict:
         if node:
             values["title"] = _clean(node.get_text(" ", strip=True))
             traces["title"] = _trace(node, "heuristic:h1", True)
+
+    # title 先走结构化选择器（异常已隔离为 None），再退 h1；两者都不可得才算页级失败，
+    # 仍沿 pipeline 的 entry 粒度 try/except 进入 source_errors / crawl_run 状态。
+    if not values.get("title"):
+        raise ValueError(f"无法抽取 title：结构化选择器与 h1 回退均无结果 ({page_url})")
 
     pairs = _key_value_pairs(soup)
     for field in ("category", "publisher", "temporal", "geography", "license", "update_frequency"):
@@ -267,8 +297,16 @@ def extract_detail(html: str, page_url: str, source: str, config: dict) -> dict:
             values["category"] = _clean(node.get_text(" ", strip=True))
             traces["category"] = _trace(node, "heuristic:breadcrumb", True)
 
-    fields, field_list_trace = _field_rows(soup, config)
-    resources, resource_list_trace = _extract_resources(soup, config, page_url)
+    try:
+        fields, field_list_trace = _field_rows(soup, config)
+    except Exception as exc:  # 字段列表隔离：整张列表按空列表记录，不再回退启发式
+        _record_error(errors, "fields", exc)
+        fields, field_list_trace = [], _failed_list_trace(config, "field_table")
+    try:
+        resources, resource_list_trace = _extract_resources(soup, config, page_url)
+    except Exception as exc:  # 资源列表隔离：整张列表按空列表记录，不再回退启发式
+        _record_error(errors, "resources", exc)
+        resources, resource_list_trace = [], _failed_list_trace(config, "resources")
     fallback_used = any(t.get("fallback") for t in traces.values()) or bool(
         field_list_trace.get("fallback") or resource_list_trace.get("fallback")
     )
@@ -276,6 +314,7 @@ def extract_detail(html: str, page_url: str, source: str, config: dict) -> dict:
         "fields": traces,
         "lists": {"fields": field_list_trace, "resources": resource_list_trace},
         "fallback_used": fallback_used,
+        "errors": errors,
         "page_title": _clean(soup.title.get_text(" ", strip=True)) if soup.title else "",
     }
     return {
