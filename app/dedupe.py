@@ -6,7 +6,10 @@ import hashlib
 import json
 from difflib import SequenceMatcher
 
-from .normalize import normalize_title
+from .normalize import LINEAGE_FIELDS, normalize_title
+
+# 命中词表规范值的归一化状态；warn 为兜底降级，missing 为来源缺失。
+_CANONICAL_STATUSES = {"applied", "unchanged"}
 
 
 def content_fingerprint(value: object) -> str:
@@ -72,11 +75,82 @@ def _first(instances: list[dict], key: str):
     return None
 
 
+def _field_lineage(instance: dict) -> dict[str, dict]:
+    """单个成员在 category / update_frequency / geography 上的归一化谱系。
+
+    优先使用 normalize_record 透传的 normalization_status；缺失时（如测试直接构造的
+    实例）回退到 transforms 审计轨迹，再缺失则按来源值是否为空记 missing。
+    """
+    status_map = instance.get("normalization_status")
+    if not isinstance(status_map, dict):
+        status_map = {}
+    transforms = {
+        item.get("field_name"): item
+        for item in instance.get("transforms") or []
+        if item.get("field_name") in LINEAGE_FIELDS
+    }
+    lineage: dict[str, dict] = {}
+    for field in LINEAGE_FIELDS:
+        entry = status_map.get(field)
+        if not isinstance(entry, dict):
+            transform = transforms.get(field)
+            if transform is not None:
+                entry = {
+                    "rule": transform.get("rule"),
+                    "status": transform.get("status"),
+                    "before_value": transform.get("before_value"),
+                    "after_value": transform.get("after_value"),
+                }
+            else:
+                value = instance.get(field)
+                entry = {
+                    "rule": None,
+                    "status": "missing" if value in (None, "", [], {}) else "unchanged",
+                    "before_value": None,
+                    "after_value": value,
+                }
+        lineage[field] = {
+            "rule": entry.get("rule"),
+            "status": entry.get("status"),
+            "raw_value": entry.get("before_value"),
+            "normalized_value": entry.get("after_value"),
+        }
+    return lineage
+
+
+def _inherited_degraded_fields(lineage_by_instance: list[dict[str, dict]]) -> list[str]:
+    """主来源取到规范值、而其他成员该字段为 warn 降级时，标记为继承降级。
+
+    主来源自身即 warn/missing 时不标记：那不是从别处继承来的降级。
+    入参为各成员经 _field_lineage 计算后的字段谱系（按 field_priority 排序）。
+    """
+    primary_lineage = lineage_by_instance[0]
+    marked: list[str] = []
+    for field in LINEAGE_FIELDS:
+        if primary_lineage[field]["status"] not in _CANONICAL_STATUSES:
+            continue
+        if any(lineage[field]["status"] == "warn" for lineage in lineage_by_instance[1:]):
+            marked.append(field)
+    return marked
+
+
 def _make_group(members: list[dict], score: float, basis: str, config: dict) -> dict:
     instances = _ordered(members, config)
     primary = instances[0]
     title = _first(instances, "title") or ""
     publisher = _first(instances, "publisher") or ""
+    lineage_by_instance = [_field_lineage(item) for item in instances]
+    member_lineage = [
+        {
+            "instance_id": item.get("instance_id"),
+            "source": item.get("source"),
+            "url": item.get("source_url"),
+            "is_primary": item is primary,
+            "fields": lineage_by_instance[index],
+        }
+        for index, item in enumerate(instances)
+    ]
+    inherited = _inherited_degraded_fields(lineage_by_instance)
     group = {
         "title": title,
         "title_norm": normalize_title(title),
@@ -95,6 +169,7 @@ def _make_group(members: list[dict], score: float, basis: str, config: dict) -> 
         "score": score,
         "basis": basis,
         "primary_source": primary.get("source"),
+        "inherited_degraded_fields": inherited,
         "merge_members": [
             {
                 "instance_id": item.get("instance_id"),
@@ -132,7 +207,13 @@ def _make_group(members: list[dict], score: float, basis: str, config: dict) -> 
         "basis": basis,
         "score": score,
         "manual_override": 0,
-        "detail": {"title_norm": group["title_norm"], "source_count": group["source_count"]},
+        "detail": {
+            "title_norm": group["title_norm"],
+            "source_count": group["source_count"],
+            "primary_source": group["primary_source"],
+            "inherited_degraded_fields": inherited,
+            "member_lineage": member_lineage,
+        },
     }
     return group
 

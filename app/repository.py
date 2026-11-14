@@ -175,6 +175,9 @@ def find_dataset(db_path: str, dataset_uid: str, run_id: str | None = None) -> d
         dataset["instances"] = _dataset_instances(conn, dataset_uid)
         dataset["validation_findings"] = _dataset_findings(conn, dataset_uid)
         dataset["merge_decision"] = _merge_decision(conn, dataset_uid)
+        dataset["inherited_degraded_fields"] = (
+            (dataset["merge_decision"] or {}).get("detail", {}).get("inherited_degraded_fields", [])
+        )
         dataset["provenance"] = _provenance(conn, dataset["instances"], run_id)
     finally:
         conn.close()

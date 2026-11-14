@@ -152,6 +152,39 @@ def _normalize_field_type(raw: object, canonical: set[str], aliases: dict) -> tu
     return mapped, _transform("field.type", "field_type.canonical", before, mapped, status)
 
 
+LINEAGE_FIELDS = ("category", "update_frequency", "geography")
+
+
+def field_normalization_status(transforms: list[dict], normalized: dict) -> dict[str, dict]:
+    """汇总 category / update_frequency / geography 的归一化状态，供跨源合并追踪降级谱系。
+
+    词表字段的 transform 各只有一条；字段在来源中缺失（无 transform）时记为 missing。
+    """
+    status: dict[str, dict] = {}
+    by_field: dict[str, dict] = {}
+    for transform in transforms:
+        name = transform.get("field_name")
+        if name in LINEAGE_FIELDS and name not in by_field:
+            by_field[name] = transform
+    for name in LINEAGE_FIELDS:
+        transform = by_field.get(name)
+        if transform is None:
+            status[name] = {
+                "rule": None,
+                "status": "missing",
+                "before_value": None,
+                "after_value": normalized.get(name),
+            }
+        else:
+            status[name] = {
+                "rule": transform.get("rule"),
+                "status": transform.get("status"),
+                "before_value": transform.get("before_value"),
+                "after_value": transform.get("after_value"),
+            }
+    return status
+
+
 def load_rules(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
@@ -228,4 +261,5 @@ def normalize_record(record: dict, rules: dict) -> tuple[dict, list[dict]]:
         normalized_resources.append({**resource, "format": fmt, "size_bytes": size_bytes})
     result["resources"] = normalized_resources
     result["transforms"] = transforms
+    result["normalization_status"] = field_normalization_status(transforms, result)
     return result, transforms

@@ -1,7 +1,55 @@
+import json
 import sqlite3
 
-from app.repository import list_datasets
+from app.dedupe import group_instances
+from app.normalize import normalize_record
+from app.repository import find_dataset, list_datasets
 from app.store import Store
+
+MERGE_CONFIG = {
+    "title_similarity_threshold": 0.86,
+    "require_same_publisher": True,
+    "require_same_period": True,
+    "require_same_geography": True,
+    "field_priority": ["alpha", "beta"],
+}
+
+MERGE_RULES = {
+    "categories": {"environment": ["environment", "environmental"]},
+    "frequency": {"daily": ["daily", "every day"]},
+    "geography": {"US": ["united states", "us"]},
+}
+
+
+def _merge_group():
+    def build(source, url, title, category, frequency):
+        record = {
+            "source": source,
+            "source_url": url,
+            "title": title,
+            "publisher": "Atlas Environmental Agency",
+            "temporal": "2023-01-01 to 2023-12-31",
+            "category": category,
+            "update_frequency": frequency,
+            "geography": "United States",
+            "license": "CC BY 4.0",
+            "fields": [{"name": "station_id", "type": "string"}],
+            "resources": [{"format": "CSV", "size_raw": "1 MB", "url": "u"}],
+        }
+        normalized, transforms = normalize_record(record, MERGE_RULES)
+        normalized["instance_id"] = f"inst_{source}_merge"
+        normalized["transforms"] = transforms
+        return normalized
+
+    alpha = build("alpha", "http://127.0.0.1:5000/alpha/air",
+                  "Air Quality Monitoring Stations 2023", "Environment", "Daily")
+    beta = build("beta", "http://127.0.0.1:5000/beta/air",
+                 "Air Quality Monitoring Stations (2023)", "Environmental Monitoring Network",
+                 "Continuous-ish")
+    assert beta["category"] == "environmental-monitoring-network"
+    groups = group_instances([beta, alpha], MERGE_CONFIG)
+    assert len(groups) == 1
+    return groups[0]
 
 
 def _instance():
@@ -96,3 +144,51 @@ def test_read_queries_filter_by_category_publisher_and_severity(tmp_path):
     rows = list_datasets(str(db_path), category="environment")
     assert rows[0]["sources"] == ["alpha"]
     assert rows[0]["finding_count"] == 1
+
+
+def test_merge_decision_detail_persists_degradation_lineage_and_round_trips(tmp_path):
+    db_path = tmp_path / "archive.db"
+    group = _merge_group()
+    assert group["inherited_degraded_fields"] == ["category", "update_frequency"]
+    first_uid, first_fp = group["dataset_uid"], group["fingerprint"]
+    store = Store(db_path)
+    try:
+        first = store.persist_groups("run_a", [group])
+        # 同组二次写入：谱系不参与 fingerprint，必须仍然幂等
+        second = store.persist_groups("run_b", [_merge_group()])
+    finally:
+        store.close()
+    assert first["merged"] == 1
+    assert (second["new"], second["updated"], second["unchanged"], second["merged"]) == (0, 0, 1, 1)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT detail_json FROM merge_decisions WHERE dataset_uid=?",
+                           (first_uid,)).fetchone()
+        assert row is not None
+        detail = json.loads(row[0])
+    finally:
+        conn.close()
+
+    assert detail["inherited_degraded_fields"] == ["category", "update_frequency"]
+    lineage = {member["source"]: member for member in detail["member_lineage"]}
+    assert set(lineage) == {"alpha", "beta"}
+    assert lineage["alpha"]["is_primary"] is True
+    beta_category = lineage["beta"]["fields"]["category"]
+    assert beta_category["status"] == "warn"
+    assert beta_category["rule"] == "category.synonym"
+    assert beta_category["raw_value"] == "Environmental Monitoring Network"
+    assert beta_category["normalized_value"] == "environmental-monitoring-network"
+    assert lineage["alpha"]["fields"]["category"]["status"] == "applied"
+    assert lineage["beta"]["fields"]["update_frequency"]["status"] == "warn"
+
+    # repository 快照能查回完整谱系与数据集层标记
+    dataset = find_dataset(str(db_path), first_uid)
+    assert dataset is not None
+    assert dataset["inherited_degraded_fields"] == ["category", "update_frequency"]
+    decision = dataset["merge_decision"]
+    assert decision["detail"]["member_lineage"] == detail["member_lineage"]
+    # 数据集层字段保持主来源规范值
+    assert dataset["category"] == "environment"
+    assert dataset["update_frequency"] == "daily"
+    assert dataset["fingerprint"] == first_fp
