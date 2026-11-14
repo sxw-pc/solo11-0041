@@ -85,10 +85,11 @@ python -m app run --source all
     "transforms": 184
   },
   "raw_pages": 22,
+  "raw_failures": 0,
   "errors": [],
   "export_dir": "data/exports/run_20261113T020146Z_daa99b"
 }
-summary: new=15 updated=0 unchanged=0 merged=1
+summary: new=15 updated=0 unchanged=0 merged=1 raw_pages=22 raw_failures=0
 ```
 
 再次执行同一条命令：
@@ -100,6 +101,8 @@ errors=[]
 ```
 
 `new / updated / unchanged` 是数据集级计数，三者之和等于当前数据集总数；`merged` 表示当前有多个来源实例的数据集数量，与前三个计数存在重叠，不是第四类互斥状态。
+
+`raw_pages` 只统计成功抓取的页面；重试耗尽后被保留的失败响应（4xx、5xx 或连接错误）计入独立的 `raw_failures`，不会抬高成功页计数。两类留档都写入 raw 目录、`manifest.json` 与 `raw_archive` 表，并以 `outcome`（`ok` / `failed`）区分。
 
 一次全量运行中可观察到的阶段结果：
 
@@ -269,7 +272,7 @@ sources:
 | `dataset_instance` | 每个来源 URL 的实例快照与逐字段抽取 JSON |
 | `field` | 合并数据集字段定义与 selector / DOM 位置溯源 |
 | `resource` | 资源格式、字节大小、原始大小文本、URL 与位置 |
-| `raw_archive` | 每个列表/详情页的 raw 文件路径、状态码、sha256 与抓取时间 |
+| `raw_archive` | 每个列表/详情页的 raw 文件路径、状态码、sha256、抓取时间与 `outcome`（`ok` 成功页 / `failed` 失败留档） |
 | `field_transform` | 归一化前后值、规则名、实例与状态 |
 | `validation_finding` | `error / warn / info` 级校验发现与证据 |
 | `merge_decisions` | 合并成员、依据、相似度分数、人工覆盖标记的保留位置 |

@@ -101,24 +101,39 @@ def _run_http_sources(
     store: Store,
     run_id: str,
     raw_root: Path,
-) -> tuple[list[dict], int, list[str], dict[str, dict]]:
+    session=None,
+    sleep_fn=None,
+) -> tuple[list[dict], int, int, list[str], dict[str, dict]]:
     raw_records: list[dict] = []
     errors: list[str] = []
     run_info: dict[str, dict] = {}
     raw_pages = 0
+    raw_failures = 0
+    failures_by_source: dict[str, int] = {}
     defaults = config.get("defaults") or {}
 
     def callback(page) -> None:
-        nonlocal raw_pages
+        nonlocal raw_pages, raw_failures
         store.archive_raw(
             run_id, page.source, page.url, page.kind, page.file_path, page.status_code,
             page.byte_count, page.fetched_at, page.sha256, page.content_type,
+            outcome=page.outcome,
         )
-        raw_pages += 1
+        if page.outcome == "ok":
+            raw_pages += 1
+        else:
+            raw_failures += 1
+            failures_by_source[page.source] = failures_by_source.get(page.source, 0) + 1
 
+    fetcher_kwargs: dict = {}
+    if session is not None:
+        fetcher_kwargs["session"] = session
+    if sleep_fn is not None:
+        fetcher_kwargs["sleep_fn"] = sleep_fn
     fetcher = Fetcher(
         raw_root, run_id, defaults,
         source_configs=config.get("sources") or {}, archive_callback=callback,
+        **fetcher_kwargs,
     )
     try:
         for source in selected:
@@ -151,11 +166,12 @@ def _run_http_sources(
             run_info[source] = {
                 "status": status, "pages": pages, "discovered": discovered,
                 "extracted": len([r for r in raw_records if r.get("source") == source]),
+                "failed_pages": failures_by_source.get(source, 0),
                 "elapsed_ms": elapsed, "errors": source_errors,
             }
     finally:
         fetcher.close()
-    return raw_records, raw_pages, errors, run_info
+    return raw_records, raw_pages, raw_failures, errors, run_info
 
 
 def _run_replay_sources(
@@ -165,11 +181,12 @@ def _run_replay_sources(
     run_id: str,
     entries: list[dict],
     rules: dict,
-) -> tuple[list[dict], int, list[str], dict[str, dict]]:
+) -> tuple[list[dict], int, int, list[str], dict[str, dict]]:
     raw_records: list[dict] = []
     errors: list[str] = []
     run_info: dict[str, dict] = {}
     raw_pages = 0
+    raw_failures = 0
     by_source: dict[str, list[dict]] = {name: [] for name in selected}
     for entry in entries:
         if entry.get("source") in by_source:
@@ -180,6 +197,7 @@ def _run_replay_sources(
         source_entries = by_source.get(source, [])
         pages = discovered = 0
         source_errors: list[str] = []
+        source_failures = 0
         for entry in source_entries:
             path = Path(entry["path"])
             kind = str(entry.get("kind") or "detail")
@@ -195,12 +213,20 @@ def _run_replay_sources(
             if entry.get("sha256") and entry["sha256"] != digest:
                 source_errors.append(f"sha256 不匹配 {path}")
                 continue
+            status_code = int(entry.get("status_code", 200))
+            outcome = str(entry.get("outcome") or ("ok" if status_code < 400 else "failed"))
             store.archive_raw(
                 run_id, source, str(entry.get("url")), kind, str(path),
-                int(entry.get("status_code", 200)), len(body),
+                status_code, len(body),
                 str(entry.get("fetched_at") or _now()), digest,
                 entry.get("content_type", "text/html"),
+                outcome=outcome,
             )
+            if outcome != "ok":
+                # 失败留档只作证据保留：计入失败口径，不参与成功页计数与抽取。
+                raw_failures += 1
+                source_failures += 1
+                continue
             raw_pages += 1
             if kind == "list":
                 continue
@@ -221,9 +247,10 @@ def _run_replay_sources(
         run_info[source] = {
             "status": status, "pages": pages, "discovered": discovered,
             "extracted": len([r for r in raw_records if r.get("source") == source]),
+            "failed_pages": source_failures,
             "elapsed_ms": elapsed, "errors": source_errors,
         }
-    return raw_records, raw_pages, errors, run_info
+    return raw_records, raw_pages, raw_failures, errors, run_info
 
 
 def run_pipeline(
@@ -236,8 +263,10 @@ def run_pipeline(
     base_url: str | None = None,
     export_after: bool = True,
     run_id: str | None = None,
+    session=None,
+    sleep_fn=None,
 ) -> dict:
-    """运行一次完整管道，返回四项幂等计数与导出摘要。"""
+    """运行一次完整管道，返回四项幂等计数、留档口径（成功/失败）与导出摘要。"""
     data_path = Path(data_dir)
     config = load_sources(config_dir, base_url)
     selected = selected_source_names(config, source)
@@ -247,12 +276,13 @@ def run_pipeline(
     try:
         if replay_from:
             entries = _replay_entries(replay_from)
-            raw_records, raw_pages, errors, run_info = _run_replay_sources(
+            raw_records, raw_pages, raw_failures, errors, run_info = _run_replay_sources(
                 config, selected, store, run_id, entries, rules
             )
         else:
-            raw_records, raw_pages, errors, run_info = _run_http_sources(
-                config, selected, store, run_id, data_path / "raw"
+            raw_records, raw_pages, raw_failures, errors, run_info = _run_http_sources(
+                config, selected, store, run_id, data_path / "raw",
+                session=session, sleep_fn=sleep_fn,
             )
         instances = _normalize_instances(raw_records, rules)
         groups = group_instances(instances, rules.get("dedupe") or {})
@@ -275,6 +305,7 @@ def run_pipeline(
         "run_id": run_id,
         "counts": counts,
         "raw_pages": raw_pages,
+        "raw_failures": raw_failures,
         "errors": errors,
         "sources": run_info,
         "export_dir": str(export_dir) if export_dir else None,

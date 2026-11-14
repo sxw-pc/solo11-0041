@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS raw_archive (
     fetched_at TEXT NOT NULL,
     sha256 TEXT NOT NULL,
     content_type TEXT,
+    outcome TEXT NOT NULL DEFAULT 'ok',
     UNIQUE (run_id, url, kind)
 );
 

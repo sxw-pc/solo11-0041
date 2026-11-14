@@ -126,7 +126,7 @@ pages[]             RawPage 对象（供留档）
 4. `Session.trust_env = False`，禁用环境代理与 netrc。
 5. 请求设置 connect/read timeout、用户代理、`Accept`。
 6. 响应支持流式读取；累计字节数超过 `max_response_bytes` 立即中止。
-7. 5xx 最多重试 `max_retries` 次；4xx 会先留档再抛错。
+7. 5xx 与连接错误最多重试 `max_retries` 次；重试前按 `retry_backoff_seconds` 指数退避（单次硬上限 1s，不叠加成长睡眠），等待经可注入的 `sleep_fn` 执行；4xx 不重试，直接留档后抛错。
 8. 重定向不交给 requests 自动跟随，而是逐跳读取 `Location`，**先校验下一跳仍是回环地址再请求**，最多 3 跳。
 9. 同一 Fetcher 的请求之间遵守 `min_interval_seconds`；每个 source 可在 `sources.yaml` 中覆盖自己的请求间隔下界。
 
@@ -134,9 +134,11 @@ pages[]             RawPage 对象（供留档）
 
 ```text
 data/raw/<run_id>/<sha1(url)>.html      原始字节，sha256 基于响应体
-data/raw/<run_id>/manifest.json         所有条目的 URL / kind / status / bytes / sha256 / fetched_at
-raw_archive 表                          同样的审计字段 + 文件路径
+data/raw/<run_id>/manifest.json         所有条目的 URL / kind / status / bytes / sha256 / fetched_at / outcome
+raw_archive 表                          同样的审计字段 + 文件路径 + outcome
 ```
+
+`outcome` 区分留档语义：`ok` 为成功页，`failed` 为重试耗尽后保留的失败响应（4xx、5xx 或连接错误；连接错误无响应可存，写入 `status_code=0` 的错误说明占位文件）。失败留档与成功页一样落盘、登记 manifest 并触发 `archive_callback`，但管道与导出/查询侧分别计数（`raw_pages` / `raw_failures`、`raw_archive_count` / `raw_failure_count`），失败留档不会抬高成功页计数，也不进入抽取阶段。
 
 文件写入后生成 `RawPage`，其 `html` 字段供后续解析；资源二进制链接仅被记录为字符串，不会请求。
 
@@ -277,7 +279,7 @@ dataset_uid = "ds_"   + sha1(title_norm|publisher_norm|period[|source|url])[:16]
 - `field_transform` 按 `(instance_id, field_name, rule)` upsert，并清除当前数据集不再产生的转换。
 - `validation_finding` 以数据集为单位先删后写，保证 findings 与本次规范状态一致。
 - `merge_decisions` 按 `dataset_uid` upsert；若数据集不再跨源，删除旧决策；更新语句不触碰 `manual_override`。
-- `raw_archive` 唯一键是 `(run_id, url, kind)`。重复运行会增加新的 raw 审计行，这是有意的：每次抓取都应有自己的留档和 sha256。
+- `raw_archive` 唯一键是 `(run_id, url, kind)`。重复运行会增加新的 raw 审计行，这是有意的：每次抓取都应有自己的留档和 sha256。`outcome` 列区分成功页与失败留档；旧库由 `Store` 打开时自动 `ALTER TABLE` 补齐，历史行回填为 `ok`。
 
 事务：每个 `persist_groups` 调用使用一个 SQLite 上下文事务；`record_run`、`archive_raw` 在抓取过程中即时提交，确保运行失败后仍保留审计。
 
@@ -289,11 +291,12 @@ dataset_uid = "ds_"   + sha1(title_norm|publisher_norm|period[|source|url])[:16]
 
 快照按 `run_id` 过滤数据集（未指定则全库），聚合：
 
-- 数据集数、来源实例数、合并数据集数、字段数、资源数、raw 页面数。
+- 数据集数、来源实例数、合并数据集数、字段数、资源数。
+- raw 留档按 `outcome` 分别计数：`raw_archive_count`（成功页）与 `raw_failure_count`（失败响应）。
 - 类别、发布方、严重级别分布。
 - 每个数据集的字段、资源、来源实例、抽取 JSON、findings、合并决策和 raw provenance。
 
-provenance 优先匹配当前 `run_id` 的 `raw_archive`；手工导出未指定 run 时回退到该 URL 的最新留档。这样重放导出的溯源不会误指向后续 HTTP 运行。
+provenance 优先匹配当前 `run_id` 的 `raw_archive` 且只取 `outcome='ok'` 的成功留档；手工导出未指定 run 时回退到该 URL 的最新成功留档。这样重放导出的溯源不会误指向后续 HTTP 运行或失败响应。
 
 导出目录：
 
@@ -316,9 +319,10 @@ Replay 与 HTTP 分支在阶段 2 分叉，之后完全共用：
 manifest entries
   ├─ 校验文件存在
   ├─ 计算实际 sha256，与 manifest 不一致则记错误并跳过
-  ├─ 写入 raw_archive（kind=list/detail）
+  ├─ 写入 raw_archive（kind=list/detail，outcome 取自条目或由 status_code 推导）
   ├─ list 条目只计入页数，不解析
-  └─ detail 条目读取 UTF-8 HTML → extract → normalize → validate → dedupe → store → export
+  ├─ failed 条目只计入 raw_failures，不解析、不计入成功页
+  └─ ok 的 detail 条目读取 UTF-8 HTML → extract → normalize → validate → dedupe → store → export
 ```
 
 特点：
@@ -338,8 +342,8 @@ manifest entries
 | 列表页网络失败 | source status=error，继续下一 source | 当前 source |
 | 单个详情页失败 | 收集错误，source status=partial | 单个详情 |
 | 非回环/带凭据/超限 URL | `FetchError`，请求不发出 | 当前 URL |
-| 5xx | 最多重试配置次数 | 当前 URL |
-| 4xx | 先留档后报错 | 当前 URL |
+| 5xx / 连接错误 | 按 `retry_backoff_seconds` 退避重试，耗尽后失败留档（`outcome=failed`）再报错 | 当前 URL |
+| 4xx | 不重试，失败留档（`outcome=failed`）后报错 | 当前 URL |
 | 外站重定向 | 在下一跳请求前拒绝 | 当前 URL |
 | selector 未命中 | 启发式回退 + `fallback_used` + `warn` | 字段/资源 |
 | 字段缺失或格式非法 | finding，不阻断入库 | 字段级 |

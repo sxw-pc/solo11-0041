@@ -93,7 +93,12 @@ def get_run(db_path: str, run_id: str) -> dict | None:
             return None
         counts = {
             "datasets": conn.execute("SELECT COUNT(*) FROM dataset WHERE last_run_id=?", (run_id,)).fetchone()[0],
-            "raw_pages": conn.execute("SELECT COUNT(*) FROM raw_archive WHERE run_id=?", (run_id,)).fetchone()[0],
+            "raw_pages": conn.execute(
+                "SELECT COUNT(*) FROM raw_archive WHERE run_id=? AND outcome='ok'", (run_id,)
+            ).fetchone()[0],
+            "raw_failures": conn.execute(
+                "SELECT COUNT(*) FROM raw_archive WHERE run_id=? AND outcome='failed'", (run_id,)
+            ).fetchone()[0],
             "findings": conn.execute("SELECT COUNT(*) FROM validation_finding WHERE run_id=?", (run_id,)).fetchone()[0],
         }
     finally:
@@ -129,13 +134,14 @@ def _provenance(conn: sqlite3.Connection, instances: list[dict], run_id: str | N
         if run_id:
             raw = conn.execute(
                 "SELECT run_id, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type "
-                "FROM raw_archive WHERE url=? AND run_id=? ORDER BY fetched_at DESC LIMIT 1",
+                "FROM raw_archive WHERE url=? AND run_id=? AND outcome='ok' "
+                "ORDER BY fetched_at DESC LIMIT 1",
                 (instance.get("source_url"), run_id),
             ).fetchone()
         else:
             raw = conn.execute(
                 "SELECT run_id, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type "
-                "FROM raw_archive WHERE url=? ORDER BY fetched_at DESC LIMIT 1",
+                "FROM raw_archive WHERE url=? AND outcome='ok' ORDER BY fetched_at DESC LIMIT 1",
                 (instance.get("source_url"),),
             ).fetchone()
         output.append(
@@ -189,10 +195,16 @@ def snapshot(db_path: str, run_id: str | None = None) -> dict:
             f"SELECT dataset_uid FROM dataset {where} ORDER BY category, title", params
         ).fetchall()
         datasets = [find_dataset(db_path, row["dataset_uid"], run_id) for row in dataset_rows]
-        raw_count = conn.execute("SELECT COUNT(*) FROM raw_archive").fetchone()[0]
+        raw_count = conn.execute("SELECT COUNT(*) FROM raw_archive WHERE outcome='ok'").fetchone()[0]
+        raw_failure_count = conn.execute(
+            "SELECT COUNT(*) FROM raw_archive WHERE outcome='failed'"
+        ).fetchone()[0]
         if run_id:
             raw_count = conn.execute(
-                "SELECT COUNT(*) FROM raw_archive WHERE run_id=?", (run_id,)
+                "SELECT COUNT(*) FROM raw_archive WHERE run_id=? AND outcome='ok'", (run_id,)
+            ).fetchone()[0]
+            raw_failure_count = conn.execute(
+                "SELECT COUNT(*) FROM raw_archive WHERE run_id=? AND outcome='failed'", (run_id,)
             ).fetchone()[0]
     finally:
         conn.close()
@@ -227,6 +239,7 @@ def snapshot(db_path: str, run_id: str | None = None) -> dict:
         "field_count": field_count,
         "resource_count": resource_count,
         "raw_archive_count": raw_count,
+        "raw_failure_count": raw_failure_count,
         "generated_at": _now(),
         "run_id": run_id,
     }

@@ -19,6 +19,14 @@ class FetchError(RuntimeError):
     """抓取失败（网络、状态码、响应体超限或目标越界）。"""
 
 
+#: 单次重试等待的硬上限（秒）：退避再激进也不会叠加成长睡眠。
+RETRY_BACKOFF_CAP = 1.0
+
+#: 留档结果语义：ok=成功页；failed=重试耗尽后保留的失败响应（或连接错误占位记录）。
+OUTCOME_OK = "ok"
+OUTCOME_FAILED = "failed"
+
+
 @dataclass(frozen=True)
 class RawPage:
     source: str
@@ -31,6 +39,7 @@ class RawPage:
     sha256: str
     content_type: str
     fetched_at: str
+    outcome: str = OUTCOME_OK
 
 
 def _now() -> str:
@@ -76,6 +85,16 @@ class Fetcher:
             for name, cfg in (source_configs or {}).items()
         }
         self.max_bytes = max(1024, int(config.get("max_response_bytes", 2 * 1024 * 1024)))
+        self.retry_backoff = min(
+            RETRY_BACKOFF_CAP, max(0.0, float(config.get("retry_backoff_seconds", 0.05)))
+        )
+        self.source_backoffs = {
+            str(name): min(
+                RETRY_BACKOFF_CAP,
+                max(0.0, float(cfg.get("retry_backoff_seconds", self.retry_backoff))),
+            )
+            for name, cfg in (source_configs or {}).items()
+        }
         self.allowed_hosts = {
             str(h).lower() for h in config.get("allowed_hosts", ["127.0.0.1", "localhost", "::1"])
         }
@@ -136,6 +155,15 @@ class Fetcher:
             response.close()
         raise FetchError(f"重定向次数超过上限: {url}")
 
+    def _retry_wait(self, source: str, attempt: int) -> None:
+        """重试前等待：经可注入的 sleep_fn 观察，单次与总量都有硬上限。"""
+        base = self.source_backoffs.get(source, self.retry_backoff)
+        if base <= 0:
+            return
+        delay = min(RETRY_BACKOFF_CAP, base * (2 ** attempt))
+        if delay > 0:
+            self.sleep_fn(delay)
+
     def fetch(self, url: str, source: str, kind: str = "page") -> RawPage:
         if self._closed:
             raise FetchError("Fetcher 已关闭")
@@ -147,8 +175,10 @@ class Fetcher:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt < self.max_retries:
+                    self._retry_wait(source, attempt)
                     continue
-                raise FetchError(f"请求失败 {url}: {exc}") from exc
+                page = self._archive_failure(url, source, kind, exc)
+                raise FetchError(f"请求失败 {url}: {exc} (raw={page.file_path})") from exc
 
             final_url = response.url or url
             self._assert_loopback(final_url)
@@ -171,6 +201,7 @@ class Fetcher:
             body = b"".join(chunks)
             if response.status_code >= 500 and attempt < self.max_retries:
                 last_error = FetchError(f"上游 {response.status_code}")
+                self._retry_wait(source, attempt)
                 continue
             page = self._archive(response, url, final_url, body, source, kind)
             if response.status_code >= 400:
@@ -187,25 +218,57 @@ class Fetcher:
         source: str,
         kind: str,
     ) -> RawPage:
-        digest = hashlib.sha256(body).hexdigest()
-        path = self._dir / f"{hashlib.sha1(url.encode('utf-8')).hexdigest()}.html"
-        path.write_bytes(body)
         encoding = response.encoding or "utf-8"
         try:
             html = body.decode(encoding, errors="replace")
         except LookupError:
             html = body.decode("utf-8", errors="replace")
+        status_code = int(response.status_code)
+        outcome = OUTCOME_OK if status_code < 400 else OUTCOME_FAILED
+        return self._record(
+            source=source, url=url, final_url=final_url, kind=kind, body=body,
+            status_code=status_code, content_type=response.headers.get("Content-Type", "text/html"),
+            outcome=outcome, html=html,
+        )
+
+    def _archive_failure(self, url: str, source: str, kind: str, error: Exception) -> RawPage:
+        """连接错误耗尽后的占位留档：无响应可存，写入错误说明作为失败证据。"""
+        note = f"fetch failed after {self.max_retries + 1} attempts: {error}\n"
+        body = note.encode("utf-8", errors="replace")
+        return self._record(
+            source=source, url=url, final_url=url, kind=kind, body=body,
+            status_code=0, content_type="text/plain; charset=utf-8",
+            outcome=OUTCOME_FAILED, html=note,
+        )
+
+    def _record(
+        self,
+        *,
+        source: str,
+        url: str,
+        final_url: str,
+        kind: str,
+        body: bytes,
+        status_code: int,
+        content_type: str,
+        outcome: str,
+        html: str,
+    ) -> RawPage:
+        digest = hashlib.sha256(body).hexdigest()
+        path = self._dir / f"{hashlib.sha1(url.encode('utf-8')).hexdigest()}.html"
+        path.write_bytes(body)
         page = RawPage(
             source=source,
             url=url,
             kind=kind,
-            status_code=int(response.status_code),
+            status_code=status_code,
             byte_count=len(body),
             html=html,
             file_path=str(path),
             sha256=digest,
-            content_type=response.headers.get("Content-Type", "text/html"),
+            content_type=content_type,
             fetched_at=_now(),
+            outcome=outcome,
         )
         self._entries.append(
             {
@@ -219,6 +282,7 @@ class Fetcher:
                 "sha256": digest,
                 "content_type": page.content_type,
                 "fetched_at": page.fetched_at,
+                "outcome": outcome,
             }
         )
         if self.archive_callback:

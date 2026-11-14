@@ -135,12 +135,13 @@ def command_run(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"run failed: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps({key: result[key] for key in ("run_id", "counts", "raw_pages", "errors", "export_dir")},
+    print(json.dumps({key: result[key] for key in ("run_id", "counts", "raw_pages", "raw_failures", "errors", "export_dir")},
                      ensure_ascii=False, indent=2))
     counts = result["counts"]
     print(
         f"summary: new={counts['new']} updated={counts['updated']} "
-        f"unchanged={counts['unchanged']} merged={counts['merged']}"
+        f"unchanged={counts['unchanged']} merged={counts['merged']} "
+        f"raw_pages={result['raw_pages']} raw_failures={result['raw_failures']}"
     )
     return 0 if counts.get("datasets", 0) > 0 else 2
 

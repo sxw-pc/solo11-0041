@@ -33,7 +33,16 @@ class Store:
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA_SQL)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """为旧库补齐 raw_archive.outcome（成功/失败留档分离口径）。"""
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(raw_archive)")}
+        if "outcome" not in columns:
+            self.conn.execute(
+                "ALTER TABLE raw_archive ADD COLUMN outcome TEXT NOT NULL DEFAULT 'ok'"
+            )
 
     def close(self) -> None:
         self.conn.close()
@@ -65,17 +74,21 @@ class Store:
 
     def archive_raw(self, run_id: str, source: str, url: str, kind: str, file_path: str,
                     status_code: int, byte_count: int, fetched_at: str, sha256: str,
-                    content_type: str | None) -> None:
+                    content_type: str | None, outcome: str = "ok") -> None:
+        if outcome not in ("ok", "failed"):
+            raise ValueError(f"未知留档结果: {outcome}")
         raw_id = _sid("raw_", run_id, url, kind)
         self.conn.execute(
             """INSERT INTO raw_archive
-            (raw_id, run_id, source, url, kind, file_path, status_code, byte_count, fetched_at, sha256, content_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (raw_id, run_id, source, url, kind, file_path, status_code, byte_count, fetched_at,
+            sha256, content_type, outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(run_id, url, kind) DO UPDATE SET file_path=excluded.file_path,
             status_code=excluded.status_code, byte_count=excluded.byte_count,
-            fetched_at=excluded.fetched_at, sha256=excluded.sha256, content_type=excluded.content_type""",
+            fetched_at=excluded.fetched_at, sha256=excluded.sha256, content_type=excluded.content_type,
+            outcome=excluded.outcome""",
             (raw_id, run_id, source, url, kind, file_path, status_code, byte_count,
-             fetched_at, sha256, content_type),
+             fetched_at, sha256, content_type, outcome),
         )
         self.conn.commit()
 

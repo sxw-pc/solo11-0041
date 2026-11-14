@@ -96,6 +96,7 @@ def render_markdown(archive: dict) -> str:
         f"| 字段 | {stats['field_count']} |",
         f"| 资源 | {stats['resource_count']} |",
         f"| 原始留档页面 | {stats['raw_archive_count']} |",
+        f"| 失败留档响应 | {stats['raw_failure_count']} |",
         "",
         "## 告警摘要",
         "",
